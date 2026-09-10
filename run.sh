@@ -6,7 +6,7 @@ set -euo pipefail
 # Menu with no arguments; a subcommand runs headlessly so an agent or another
 # host can call it directly:
 #
-#   ./run.sh doctor     what is missing, and the one command that fixes it
+#   ./run.sh doctor     report prerequisites and CWA setup state
 #   ./run.sh setup      install the ChatGPT backend at the pinned commit
 #   ./run.sh build      build the TUI
 #   ./run.sh test       gofmt, go vet, go test, byte-compile, checkdoc
@@ -39,13 +39,12 @@ error() { echo -e "${RED}✗${NC} $1"; }
 
 # find_python locates an interpreter that can actually import the adapter. The
 # shebang on bin/cwaq says nothing about that, which is why the shim is never
-# executed bare. Order: an explicit override, this script's own install, the
-# older working directory, then whatever is on PATH.
+# executed bare. Order: an explicit override, this script's own install, then
+# whatever is on PATH.
 find_python() {
     local candidates=()
     [[ -n "${CWA_PY:-}" ]] && candidates+=("$CWA_PY")
     candidates+=("$CWA_HOME/src/.venv/bin/python")
-    candidates+=("$HOME/tmp/cwa-phase1/src/.venv/bin/python")
     candidates+=("$(command -v python3 || true)")
     local py
     for py in "${candidates[@]}"; do
@@ -62,7 +61,6 @@ find_cwa() {
     local candidates=()
     [[ -n "${CWA_BIN:-}" ]] && candidates+=("$CWA_BIN")
     candidates+=("$CWA_HOME/src/.venv/bin/cwa")
-    candidates+=("$HOME/tmp/cwa-phase1/src/.venv/bin/cwa")
     candidates+=("$(command -v cwa || true)")
     local bin
     for bin in "${candidates[@]}"; do
@@ -141,12 +139,6 @@ cmd_setup() {
 
     mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR"
     success "state dir: $STATE_DIR"
-
-    if [[ -d "$HOME/tmp/cwa-phase1/src/.venv" ]] && [[ -z "${BOTSCHAFT_FORCE_SETUP:-}" ]]; then
-        info "an adapter install already exists at ~/tmp/cwa-phase1 and is being reused"
-        info "set BOTSCHAFT_FORCE_SETUP=1 to install a fresh one under $CWA_HOME"
-        find_python >/dev/null && success "nothing to install" && return 0
-    fi
 
     mkdir -p "$CWA_HOME"
     if [[ ! -d "$CWA_HOME/src/.git" ]]; then
@@ -285,7 +277,7 @@ show_menu() {
     echo "    2) Emacs setup snippet for this host"
     echo ""
     echo -e "  ${YELLOW}Check${NC}"
-    echo "    3) Doctor (what is missing, and the fix)"
+    echo "    3) Doctor (prerequisites and CWA setup state)"
     echo "    4) Test (gofmt, go vet, go test, byte-compile, checkdoc)"
     echo "    5) Smoke (one live read through the contract)"
     echo ""
@@ -326,7 +318,7 @@ usage() {
 usage: ./run.sh [command]
 
   (no command)  interactive menu
-  doctor        report what is missing and the command that fixes it
+  doctor        report prerequisites and CWA-specific setup state
   setup         install the ChatGPT backend at the pinned commit
   login         authenticate once (opens a browser)
   build         build the TUI
