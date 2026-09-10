@@ -8,7 +8,7 @@ The issue tracker carries the shape of the work; this file carries the next
 concrete move. Doors: **#2** write path · **#3** Claude backend · **#4** upstream
 verbs · **#5** packaging. **#1** is the roadmap that ties them together.
 
-## NOW — reading is done. The next door is the owner's to open (#2)
+## NOW — reading works; the TUI has to become a surface you can talk in (#2)
 
 `lisp/botschaft.el` runs against a live account, zero-config:
 
@@ -20,8 +20,16 @@ One `completing-read` was enough. No `tabulated-list-mode`, no new UI framework,
 built-ins only (`seq`, `subr-x`, `browse-url`, `json-parse-buffer`).
 Byte-compile, `checkdoc`, `gofmt` and `go vet` are all clean.
 
-**Do not start RAIL 4 before the owner opens that door** — see #2 for why it is
-not an implementer's call.
+**The next move is RAIL 4.1 in #2: reading quality in the TUI.** It is entirely
+read-only and needs no decision — turn navigation, a collapsed human-turns
+overview, folding long turns, in-conversation search, copying a turn, and code
+fences that are not word-wrapped. Measured reasons for each are in #2.
+
+One premise changed: there are **two** write transports, and `browserless-request`
+is already `ready: true` on the same session token reading uses — no extension, no
+`debugger` permission. What is still the owner's call is *which* transport, because
+`web_search` is UNKNOWN on that one and AVAILABLE on the other. UNKNOWN means
+unmeasured; one sent turn settles it.
 
 ## What the last session settled
 
