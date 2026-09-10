@@ -20,10 +20,20 @@ One `completing-read` was enough. No `tabulated-list-mode`, no new UI framework,
 built-ins only (`seq`, `subr-x`, `browse-url`, `json-parse-buffer`).
 Byte-compile, `checkdoc`, `gofmt` and `go vet` are all clean.
 
-**The next move is RAIL 4.1 in #2: reading quality in the TUI.** It is entirely
-read-only and needs no decision — turn navigation, a collapsed human-turns
-overview, folding long turns, in-conversation search, copying a turn, and code
-fences that are not word-wrapped. Measured reasons for each are in #2.
+**RAIL 4.1 is done** (#2): `n`/`p` with a turn index, `v` for a collapsed
+human-turns overview, `e` to expand a turn folded at 20 lines, `/` with `]`/`[`
+to find within a conversation, `Y` to copy the turn under the cursor, and fences
+left unwrapped. 13 headless tests; `gofmt` and `go vet` silent.
+
+**Five of the six were verified headlessly; `Y` was not** — the clipboard needs
+`xclip` or `wl-copy` and a seated human. Live scroll on a ~315-line conversation
+and the 43-fence conversation in a real terminal are also eye-only. **That is the
+next thing to do, and it needs a keyboard, not a decision.**
+
+**The next implementable step is RAIL 4.2 in #2: a compose surface** — a
+multi-line composer with `$EDITOR` handoff, a draft that survives leaving the
+conversation, and a dry run that prints the exact `cwa send` invocation and sends
+nothing. Still zero writes.
 
 One premise changed: there are **two** write transports, and `browserless-request`
 is already `ready: true` on the same session token reading uses — no extension, no
