@@ -39,11 +39,11 @@ The same parameter name is treated differently per route.
 
 ### 3. Search pages by cursor, and the first 30 hits are not the total
 
-`?query=…` → 30 items plus `cursor="30"`. Appending `&cursor=30` returns the rest.
-One query went 30 → **39**; another went 30 → **101**.
-**The end is `cursor == null`.** Dropping the cursor silently hides the older
-matches — which is precisely the "find and reopen last month's conversation" path
-this kind of tool exists for.
+The reproduction query identified below returned 30 items plus `cursor="30"`.
+Appending `&cursor=30` returned the remaining 9, for **39** results at
+17:26 KST. **The end is `cursor == null`.** Dropping the cursor silently hides the
+older matches — which is precisely the "find and reopen last month's conversation"
+path this kind of tool exists for.
 
 ### 4. The `total` field on the global list is not a total
 
@@ -76,7 +76,7 @@ scrolled the header off screen. **Never assume a server string is one line.**
 ## Reproduction — measured again from the Emacs front end (2026-09-10, 17:2x KST)
 
 The same account was asked again while the second front end (`lisp/botschaft.el`)
-was attached. **Four of the five traps are observable from a front end, and all
+was attached. **Four query-route traps are observable from a front end, and all
 four reproduced with no value out of line.**
 
 | Fact | First measurement | Reproduction |
@@ -92,10 +92,11 @@ part of the 262 measured across three that day, so it is not a direct comparison
 Search counts are for one Korean-language query (the word for "Emacs") between 17:26 and 17:28 KST — the index
 is live, so measuring again will give different numbers.
 
-All four were already carried at the contract layer, and **the Emacs code does not
-handle any of these facts a second time.** That the traps did not leak once a
-second front end existed is the second piece of evidence that the boundary is
-drawn in the right place.
+The query shim already carries the paging, route-selection and timestamp-
+normalization rules. The Emacs renderer applies separate display-only title
+hygiene. That the query-route traps did not require a second paging or routing
+implementation once a second front end existed is the second piece of evidence
+that the boundary is drawn in the right place.
 
 ## One auth file, two hosts — do not (2026-09-10, unproven)
 

@@ -10,7 +10,8 @@ verbs · **#5** packaging. **#1** is the roadmap that ties them together.
 
 ## NOW — reading works; the TUI has to become a surface you can talk in (#2)
 
-`lisp/botschaft.el` runs against a live account, zero-config:
+`lisp/botschaft.el` runs against a live account once `CWA_PY` and `CWA_BIN`
+are set (use `./run.sh emacs` to print them); the auth path itself is zero-config:
 
 - `botschaft-projects` — pick a project and hold it as the scope (`C-u` clears)
 - `botschaft-search` — query → candidates (snippet as annotation) → open
@@ -43,9 +44,9 @@ unmeasured; one sent turn settles it.
 
 ## What the last session settled
 
-- The four front-end-observable traps in `docs/chatgpt-protocol.md` were measured
-  again from the Emacs side. **Nothing out of line.** The Reproduction section is
-  that table
+- The four front-end-observable query-route traps in
+  `docs/chatgpt-protocol.md` were measured again from the Emacs side. **Nothing
+  out of line.** The Reproduction section is that table
 - The repository went public. Every document, comment and docstring is English.
   Two comments in `tui/` had quoted live conversation titles as evidence; they
   now cite the code point alone

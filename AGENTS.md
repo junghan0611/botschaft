@@ -39,9 +39,10 @@ projects · list · search · read  (+ send)
 
 - The front ends (Emacs, TUI) know **only these verbs.** They never call the
   adapter directly
-- All five server traps measured on day one were caught **at the contract layer,
-  and neither front end needed a single line about them.** That is the evidence
-  the boundary is right. If a trap leaks into a front end, the boundary is wrong
+- Paging, route selection and query timestamp normalization are handled **at
+  the contract layer.** The front ends consume that stable envelope rather than
+  reimplementing those server rules. That is the evidence the boundary is right.
+  If a query-route trap leaks into a front end, the boundary is wrong
 - **A Claude web backend is a TODO. Do not generalise the interface now.**
   Fixing a boundary before using it is how `gptel-backend` and `LlmProvider`
   failed (see the table in `README.md`). Settle it when a second product is

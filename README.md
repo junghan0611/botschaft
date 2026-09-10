@@ -84,13 +84,13 @@ subcommand it runs headlessly, so another host or an agent can call it directly.
 ```bash
 ./run.sh setup     # install the ChatGPT backend at the pinned commit, for this architecture
 ./run.sh login     # authenticate once -- the only step that opens a browser
-./run.sh doctor    # what is missing, and the one command that fixes it
+./run.sh doctor    # report prerequisites and CWA setup state
 ./run.sh tui       # build and run
 ```
 
 | Subcommand | What it does |
 |---|---|
-| `doctor` | Report what is missing and the fix for each |
+| `doctor` | Report prerequisites and CWA-specific setup state |
 | `setup` | Clone and install the adapter at the pinned commit |
 | `login` | Authenticate once into the XDG state directory, mode 0600 |
 | `build` · `clean` | Build or remove `tui/cwatui` |
@@ -99,19 +99,23 @@ subcommand it runs headlessly, so another host or an agent can call it directly.
 | `tui` | Build and run the TUI |
 | `emacs` | Print the Emacs setup snippet resolved for this host |
 
-All front ends resolve the auth file to the same XDG location, so one login
-serves every one of them. By hand, without the script:
+All front ends on one host resolve the auth file to the same XDG location, so
+one login serves every one of them. Never copy that file to another host; each
+host must run its own `./run.sh login`. By hand, without the script, name the
+adapter's interpreter explicitly — do not execute the shim bare:
 
 ```bash
+CWA_PY=/path/to/venv/bin/python
+CWA_BIN=/path/to/venv/bin/cwa
 mkdir -p ~/.local/state/botschaft && chmod 700 ~/.local/state/botschaft
-cwa auth login --auth-file ~/.local/state/botschaft/auth_data.json
+"$CWA_BIN" auth login --auth-file ~/.local/state/botschaft/auth_data.json
 chmod 600 ~/.local/state/botschaft/auth_data.json
 
-bin/cwaq projects
-bin/cwaq list --limit 50
-bin/cwaq search 'query' --project <project-id>
+"$CWA_PY" bin/cwaq projects
+"$CWA_PY" bin/cwaq list --limit 50
+"$CWA_PY" bin/cwaq search 'query' --project <project-id>
 
-cd tui && go build -o cwatui . && ./cwatui
+cd tui && go build -o cwatui . && CWA_PY="$CWA_PY" CWA_BIN="$CWA_BIN" ./cwatui
 ```
 
 ### Emacs
@@ -149,9 +153,9 @@ In a conversation buffer (`special-mode`): `t` toggles tool turns, `g` re-reads,
 
 | Screen | Keys |
 |---|---|
-| List | `p` projects · `/` search · `enter` open · `j/k` · `y` URL · `o` browser · `r` reload · `q` |
-| Projects | `j/k` · `enter` select · `esc` |
-| Reading | scroll · `t` toggle tool turns · `y` · `o` · `r` reload · `esc` |
+| List | `p` projects · `/` search · `enter` open · `j/k` move · `g/G` first/last · `y` URL · `o` browser · `r` reload · `q` quit |
+| Projects | `j/k` move · `enter` select · `esc` back · `q` quit |
+| Reading | scroll · `n/p` next/previous turn · `v` overview · `e` expand/fold · `/` find · `]/[` next/previous hit · `Y` copy turn · `g/G` first/last turn · `t` tool turns · `y` URL · `o` browser · `r` reload · `esc` back · `q` quit |
 
 ## Warning
 
