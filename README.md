@@ -84,13 +84,13 @@ subcommand it runs headlessly, so another host or an agent can call it directly.
 ```bash
 ./run.sh setup     # install the ChatGPT backend at the pinned commit, for this architecture
 ./run.sh login     # authenticate once -- the only step that opens a browser
-./run.sh doctor    # report prerequisites and CWA setup state
+./run.sh doctor    # what is missing, and the one command that fixes it
 ./run.sh tui       # build and run
 ```
 
 | Subcommand | What it does |
 |---|---|
-| `doctor` | Report prerequisites and CWA-specific setup state |
+| `doctor` | Report what is missing, the fix for each, and whether the adapter is at the pinned commit |
 | `setup` | Clone and install the adapter at the pinned commit |
 | `login` | Authenticate once into the XDG state directory, mode 0600 |
 | `build` · `clean` | Build or remove `tui/cwatui` |

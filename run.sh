@@ -6,7 +6,7 @@ set -euo pipefail
 # Menu with no arguments; a subcommand runs headlessly so an agent or another
 # host can call it directly:
 #
-#   ./run.sh doctor     report prerequisites and CWA setup state
+#   ./run.sh doctor     what is missing, and the one command that fixes it
 #   ./run.sh setup      install the ChatGPT backend at the pinned commit
 #   ./run.sh build      build the TUI
 #   ./run.sh test       gofmt, go vet, go test, byte-compile, checkdoc
@@ -39,12 +39,19 @@ error() { echo -e "${RED}✗${NC} $1"; }
 
 # find_python locates an interpreter that can actually import the adapter. The
 # shebang on bin/cwaq says nothing about that, which is why the shim is never
-# executed bare. Order: an explicit override, this script's own install, then
-# whatever is on PATH.
+# executed bare. Order: an explicit override, this script's own install, an
+# install made before this script existed, then whatever is on PATH.
+#
+# The older location stays in the search on purpose. Dropping it does not make a
+# host safer, it only makes a working host report that nothing is installed —
+# which is worse, because the real risk is running against an adapter the
+# measurements were not taken against. So the commit is checked (adapter_commit)
+# rather than inferred from the path.
 find_python() {
     local candidates=()
     [[ -n "${CWA_PY:-}" ]] && candidates+=("$CWA_PY")
     candidates+=("$CWA_HOME/src/.venv/bin/python")
+    candidates+=("$HOME/tmp/cwa-phase1/src/.venv/bin/python")
     candidates+=("$(command -v python3 || true)")
     local py
     for py in "${candidates[@]}"; do
@@ -61,6 +68,7 @@ find_cwa() {
     local candidates=()
     [[ -n "${CWA_BIN:-}" ]] && candidates+=("$CWA_BIN")
     candidates+=("$CWA_HOME/src/.venv/bin/cwa")
+    candidates+=("$HOME/tmp/cwa-phase1/src/.venv/bin/cwa")
     candidates+=("$(command -v cwa || true)")
     local bin
     for bin in "${candidates[@]}"; do
@@ -70,6 +78,15 @@ find_cwa() {
         fi
     done
     return 1
+}
+
+# adapter_commit reports the commit of the adapter checkout backing an
+# interpreter, or nothing when it is not a checkout at all. A venv lives at
+# <src>/.venv, so the checkout is two levels above bin/.
+adapter_commit() {
+    local src
+    src=$(cd "$(dirname "$1")/../.." 2>/dev/null && pwd) || return 0
+    git -C "$src" rev-parse --short HEAD 2>/dev/null || true
 }
 
 # Check the environment
@@ -91,6 +108,16 @@ check_env() {
 
     if PY=$(find_python); then
         success "adapter python: $PY"
+        local at
+        at=$(adapter_commit "$PY")
+        if [[ -z "$at" ]]; then
+            warn "  adapter commit unknown — not a git checkout, so it cannot be compared to the pin"
+        elif [[ "$CWA_COMMIT" == "$at"* ]] || [[ "$at" == "$CWA_COMMIT"* ]]; then
+            success "  adapter at the pinned commit ($at)"
+        else
+            warn "  adapter is at $at, not the pinned $CWA_COMMIT"
+            info "  the server facts in docs/chatgpt-protocol.md were measured against the pin"
+        fi
     else
         error "adapter python: not found — no interpreter can import chatgpt_web_adapter"
         info "  fix: ./run.sh setup"
@@ -139,6 +166,14 @@ cmd_setup() {
 
     mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR"
     success "state dir: $STATE_DIR"
+
+    if [[ -z "${BOTSCHAFT_FORCE_SETUP:-}" ]] && PY=$(find_python); then
+        if [[ "$(adapter_commit "$PY")" == "$CWA_COMMIT"* ]]; then
+            success "an adapter at the pinned commit is already installed: $PY"
+            info "set BOTSCHAFT_FORCE_SETUP=1 to install another one under $CWA_HOME"
+            return 0
+        fi
+    fi
 
     mkdir -p "$CWA_HOME"
     if [[ ! -d "$CWA_HOME/src/.git" ]]; then
@@ -277,7 +312,7 @@ show_menu() {
     echo "    2) Emacs setup snippet for this host"
     echo ""
     echo -e "  ${YELLOW}Check${NC}"
-    echo "    3) Doctor (prerequisites and CWA setup state)"
+    echo "    3) Doctor (what is missing, and the fix)"
     echo "    4) Test (gofmt, go vet, go test, byte-compile, checkdoc)"
     echo "    5) Smoke (one live read through the contract)"
     echo ""
@@ -318,7 +353,7 @@ usage() {
 usage: ./run.sh [command]
 
   (no command)  interactive menu
-  doctor        report prerequisites and CWA-specific setup state
+  doctor        report what is missing and the command that fixes it
   setup         install the ChatGPT backend at the pinned commit
   login         authenticate once (opens a browser)
   build         build the TUI
