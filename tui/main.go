@@ -700,6 +700,39 @@ func (m *model) scrollToTurn() {
 	}
 }
 
+// turnAtOffset returns the visible-turn index whose rendered block contains
+// viewport line y. starts is ascending, so the answer is the last start at or
+// before y.
+func turnAtOffset(starts []int, y int) int {
+	idx := 0
+	for i, s := range starts {
+		if s > y {
+			break
+		}
+		idx = i
+	}
+	return idx
+}
+
+// syncCursorToViewport makes the turn index follow a free scroll. j/k, page keys
+// and the mouse move the viewport without going through moveTurn, and the index
+// in the status bar, the ▸ marker and what Y copies all have to keep naming the
+// same turn. The marker is two columns wide either way, so re-laying out after
+// this changes no line count and the offsets stay valid.
+func (m *model) syncCursorToViewport() {
+	if len(m.turnStarts) == 0 {
+		return
+	}
+	next := turnAtOffset(m.turnStarts, m.vp.YOffset)
+	if next == m.turnCursor {
+		return
+	}
+	m.turnCursor = next
+	content, starts := m.layoutConversation()
+	m.turnStarts = starts
+	m.vp.SetContent(content)
+}
+
 func (m *model) refreshRead() {
 	m.relayout()
 	m.scrollToTurn()
@@ -946,7 +979,11 @@ func (m model) updateRead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	var cmd tea.Cmd
+	before := m.vp.YOffset
 	m.vp, cmd = m.vp.Update(msg)
+	if m.vp.YOffset != before {
+		m.syncCursorToViewport()
+	}
 	return m, cmd
 }
 

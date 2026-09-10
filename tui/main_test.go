@@ -295,3 +295,46 @@ func nonEmpty(lines []string) []string {
 	}
 	return out
 }
+
+// The turn index in the status bar, the highlighted turn and what Y copies must
+// all name the same turn. Free scrolling with j/k moves the viewport without
+// touching turnCursor, so before this was fixed the bar said "1/3" while turn 3
+// filled the screen and Y copied turn 1.
+func TestFreeScrollMovesTheTurnCursor(t *testing.T) {
+	body := strings.Repeat("line\n", 30) // each turn is taller than the pane
+	m := testReadModel([]turn{
+		human("user", "first "+body),
+		human("assistant", "second "+body),
+		human("user", "third "+body),
+	}, 80, 24)
+	m.expanded = map[int]bool{0: true, 1: true, 2: true}
+	m.refreshRead()
+
+	if got := m.currentOrig(); got != 0 {
+		t.Fatalf("starts on turn 0, got %d", got)
+	}
+	// Scroll far enough to land inside the last turn.
+	for i := 0; i < 40; i++ {
+		m = sendKey(t, m, "j")
+	}
+	// Computed inline, not with the helper under test, so this fails against a
+	// build that has no such helper rather than failing to compile.
+	want := 0
+	for i, start := range m.turnStarts {
+		if start > m.vp.YOffset {
+			break
+		}
+		want = i
+	}
+	if want == 0 {
+		t.Fatalf("the scroll did not leave the first turn; starts=%v offset=%d",
+			m.turnStarts, m.vp.YOffset)
+	}
+	if m.turnCursor != want {
+		t.Fatalf("after free scroll the cursor is on turn %d but the viewport shows turn %d",
+			m.turnCursor, want)
+	}
+	if m.currentOrig() != want {
+		t.Fatalf("Y would copy turn %d while the viewport shows turn %d", m.currentOrig(), want)
+	}
+}
