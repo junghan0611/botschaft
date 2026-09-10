@@ -111,9 +111,56 @@ bridge.available · bridge.extension_connected · runtime.health
 They close with `cwa browser-native install` plus loading the unpacked extension
 into Chrome.
 
+### There are two write transports, and only one needs that extension
+
+Measured 2026-09-10 with `cwa status` and `cwa capabilities`, both of which are
+read-only and perform no write:
+
+```
+--transport browser-owned        ready: false   BROWSER_NATIVE_BRIDGE_UNAVAILABLE
+--transport browserless-request  ready: true    BROWSERLESS_REQUEST_READY_SENTINEL_PREFLIGHT_PENDING
+```
+
+**The browserless transport is already ready on the same session token reading
+uses.** No extension, no `debugger` permission, no resident Chrome. But the two
+transports do not carry the same capabilities:
+
+| Capability | browser-owned | browserless-request |
+|---|---|---|
+| `text_turns` · `continuation` · `streaming` · `new_chat` | AVAILABLE | AVAILABLE |
+| `canonical_readback` · `conversation_attach` · `conversation_read` | AVAILABLE | AVAILABLE |
+| `web_search` | AVAILABLE | **UNKNOWN** |
+| `model_selection` · `reasoning_selection` | AVAILABLE | **UNKNOWN** |
+| `files` | AVAILABLE | UNKNOWN |
+| `images` · `multimodal_continuation` | AVAILABLE | **UNIMPLEMENTED** |
+| `temporary_chat` | AVAILABLE | UNKNOWN |
+
+So the transport choice is not only a question of risk. `web_search` is the
+capability that makes the counterpart on the other side worth talking to at all,
+and it is unverified on the transport that needs no extension. **UNKNOWN here
+means unmeasured, not absent** — it can only be settled by sending one turn.
+
 **Order matters when starting on writes:** CWA upstream #79 (open) promotes a
 **new** conversation's id to `WEB:<uuid>`, which the canonical read then rejects.
 **Continue an existing conversation first, create new ones later.**
+
+## What a conversation actually weighs
+
+Measured 2026-09-10 across the eight most recently updated conversations, human
+turns only (`recipient == "all"` and not a tool role):
+
+| | |
+|---|---|
+| Median conversation | ~5,100 characters ≈ 51 wrapped lines at 100 columns |
+| Largest seen | 31,535 characters ≈ 315 lines |
+| Median single turn | 104–539 characters |
+| Largest single turn | 9,986 characters ≈ 99 lines — **twice a 50-row pane** |
+| Worst tool ratio | 65 turns of which **5** are human-readable |
+| Fenced code blocks in one conversation | 43 |
+
+These numbers set the bar for any reading surface: plain viewport scrolling is
+not enough to navigate a 315-line conversation, one turn can exceed the screen
+twice over, and a conversation can be 92% tool traffic.
 
 ## For reference — where other implementations stopped
 
