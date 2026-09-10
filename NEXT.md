@@ -41,11 +41,6 @@ measured again from this second front end — nothing out of line.
 - **Whether to open the write door** — start RAIL 4 or not
 - The repository is public as of 2026-09-10. Every document is English; keep any
   new one that way, and keep conversation titles and project names out
-- **Move `auth_data.json` to `~/.local/state/botschaft/`.** All three components
-  now default there, which is what `AGENTS.md` always said. Until it moves, the
-  live setup needs `CWA_AUTH`, `CWA_PY` and `CWA_BIN` exported (or the three
-  `botschaft-*` variables set in Emacs). Moving it makes every front end
-  zero-config again
 - Whether to declare dependencies in the environment repository. The Emacs side
   needs nothing new — built-ins only. Just Python ≥3.10 and system `curl`
 - A feature request to send upstream to CWA: expose `list` / `search` /

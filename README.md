@@ -77,12 +77,16 @@ logged-in Chrome.
 
 ## Quick start
 
+All three front ends resolve the auth file to the same XDG location, so one
+login serves every one of them.
+
 ```bash
 # 1. Set up the ChatGPT backend (CWA) and log in once
+mkdir -p ~/.local/state/botschaft && chmod 700 ~/.local/state/botschaft
 cwa auth login --auth-file ~/.local/state/botschaft/auth_data.json
+chmod 600 ~/.local/state/botschaft/auth_data.json
 
-# 2. The query shim
-export CWA_AUTH=~/.local/state/botschaft/auth_data.json
+# 2. The query shim -- no environment variable needed
 bin/cwaq projects
 bin/cwaq list --limit 50
 bin/cwaq search 'query' --project <project-id>
@@ -99,10 +103,9 @@ relative to its own file.
 ```elisp
 (add-to-list 'load-path "/path/to/botschaft/lisp")
 (require 'botschaft)
-(setq botschaft-auth-file "~/.local/state/botschaft/auth_data.json"
-      ;; The interpreter and CLI that can reach the adapter. Both default to
-      ;; whatever is on PATH; point them at the virtualenv if it is not.
-      botschaft-python "/path/to/venv/bin/python"
+;; The auth file is found on its own. Set these two only if the interpreter and
+;; CLI that can reach the adapter are not on PATH.
+(setq botschaft-python "/path/to/venv/bin/python"
       botschaft-cwa    "/path/to/venv/bin/cwa")
 ```
 
@@ -120,7 +123,7 @@ In a conversation buffer (`special-mode`): `t` toggles tool turns, `g` re-reads,
 |---|---|
 | `CWA_BIN` `CWA_PY` | The CWA CLI and a Python that can import the adapter |
 | `CWAQ_BIN` | Shim path (default: `bin/cwaq`, found automatically) |
-| `CWA_AUTH` | Auth file. **It is a secret** — never commit it |
+| `CWA_AUTH` | Auth file. Defaults to `$XDG_STATE_HOME/botschaft/auth_data.json`, falling back to `~/.local/state/botschaft/auth_data.json`. **It is a secret** — never commit it |
 
 ## Keys (TUI)
 

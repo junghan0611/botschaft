@@ -51,13 +51,22 @@ func env(key, fallback string) string {
 // documented home. Every value is overridable, because the interpreter that can
 // import the adapter is usually a virtualenv rather than the system python.
 func loadConfig() config {
-	home, _ := os.UserHomeDir()
 	return config{
 		cwaBin:   env("CWA_BIN", lookup("cwa")),
 		pyBin:    env("CWA_PY", lookup("python3")),
 		cwaqBin:  env("CWAQ_BIN", findShim()),
-		authFile: env("CWA_AUTH", filepath.Join(home, ".local", "state", "botschaft", "auth_data.json")),
+		authFile: env("CWA_AUTH", filepath.Join(stateDir(), "auth_data.json")),
 	}
+}
+
+// stateDir is this program's XDG state directory, shared with the shim and the
+// Emacs package so all three look in one place.
+func stateDir() string {
+	if state := os.Getenv("XDG_STATE_HOME"); state != "" {
+		return filepath.Join(state, "botschaft")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "state", "botschaft")
 }
 
 // lookup returns the absolute path of name on PATH, or name itself so the

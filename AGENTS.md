@@ -90,7 +90,9 @@ This house stands on **undocumented server behaviour**. So:
 - CWA is an **unofficial adapter**. The risk to the account is not zero, and this
   house inherits it
 - `auth_data.json` holds an access token and cookies. **Never commit it.** Its
-  home is `~/.local/state/botschaft/`
+  home is `$XDG_STATE_HOME/botschaft/`, falling back to
+  `~/.local/state/botschaft/`, mode 0600 in a 0700 directory. All three
+  components resolve that one path, so one login serves every front end
 - Conversation titles, bodies and project names are **personal data**. They do
   not go into documents, issues or commit messages. When recording a
   measurement, keep the numbers and the structure and drop the names

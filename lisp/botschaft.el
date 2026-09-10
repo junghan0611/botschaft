@@ -87,12 +87,21 @@ Only reading (\"messages\") goes through it."
   "Path to the query shim `bin/cwaq'."
   :type 'file)
 
+(defun botschaft--state-directory ()
+  "Return this package's XDG state directory.
+Spelled out rather than taken from `xdg-state-home', which arrived after
+the Emacs version this package supports."
+  (expand-file-name
+   "botschaft/"
+   (or (getenv "XDG_STATE_HOME") (expand-file-name "~/.local/state"))))
+
 (defcustom botschaft-auth-file
   (or (getenv "CWA_AUTH")
-      (expand-file-name "~/.local/state/botschaft/auth_data.json"))
+      (expand-file-name "auth_data.json" (botschaft--state-directory)))
   "File holding the web session credentials.
-It contains an access token and cookies.  It is a secret: keep it out of
-version control."
+It contains an access token and cookies, so it is a secret: keep it out
+of version control and readable only by you.  The default follows the
+XDG Base Directory spec, which is also where the other front ends look."
   :type 'file)
 
 (defcustom botschaft-list-limit 200

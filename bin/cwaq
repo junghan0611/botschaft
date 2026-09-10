@@ -43,9 +43,16 @@ BACKEND = "https://chatgpt.com/backend-api"
 
 
 def _auth_file() -> str:
-    return os.environ.get("CWA_AUTH") or os.path.expanduser(
-        "~/.local/state/botschaft/auth_data.json"
-    )
+    """The auth file, per the XDG Base Directory spec.
+
+    All three front ends resolve the same path so that a single `cwa auth login`
+    serves every one of them.
+    """
+    override = os.environ.get("CWA_AUTH")
+    if override:
+        return override
+    state = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(state, "botschaft", "auth_data.json")
 
 
 def _oneline(value) -> str:
