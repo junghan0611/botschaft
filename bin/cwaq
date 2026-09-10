@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""cwaq — CWA query shim: the verbs chatgpt-web-adapter does not expose.
+
+CWA 0.3.0's public CLI is
+  auth snapshot send browser-native runtime status capabilities messages export doctor
+`messages` (read) is public and schema-versioned. Listing, searching and PROJECTS
+are not exposed at all, so this shim reaches one level down into the same client
+and emits a stable envelope of its own.
+
+It exists to be DELETED the day upstream grows these verbs. The debt is 4 endpoints:
+
+  GET /backend-api/conversations?offset&limit&order=updated      all conversations
+  GET /backend-api/conversations/search?query=[&gizmo_id=]       search, project-scopable
+  GET /backend-api/gizmos/snorlax/sidebar?...                    the project list
+  GET /backend-api/gizmos/<gizmo_id>/conversations?limit&cursor  one project's conversations
+
+Measured 2026-09-10 against the live account, and two of those facts are not obvious:
+
+  * `/conversations?gizmo_id=…` SILENTLY IGNORES the parameter and returns the global
+    list. Project scoping on the plain list endpoint does not exist; you must go
+    through /gizmos/<id>/conversations.
+  * `/conversations/search?query=…&gizmo_id=…` DOES honour it (4 hits → 1). Search is
+    project-scopable even though search results carry no project field of their own.
+
+No local store is written. The server stays canonical.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+import os
+import sys
+from urllib.parse import quote
+
+from chatgpt_web_adapter.legacy_client_core import (
+    CHAT_CONVERSATIONS_URL,
+    CHAT_URL,
+    ChatGPTWebClient,
+)
+
+BACKEND = "https://chatgpt.com/backend-api"
+
+
+def _auth_file() -> str:
+    return os.environ.get("CWA_AUTH") or os.path.expanduser(
+        "~/tmp/cwa-phase1/auth_data.json"
+    )
+
+
+def _oneline(value) -> str:
+    """Titles arrive with trailing newlines and unassigned code points."""
+    return " ".join(str(value or "").split())
+
+
+def _iso(value) -> str:
+    """Normalize every route onto ONE time axis, offset included.
+
+    The routes disagree about the type: the global list sends
+    "2026-09-10T05:27:04.545482Z" (UTC) while search sends an epoch float. Reading
+    the first as naive and the second as local put the SAME conversation 9 hours
+    apart in the same list (measured 2026-09-10). So parse each one as what it is,
+    convert to this host's zone, and keep the offset in the string — a consumer
+    (Emacs `parse-time-string`, Go, anything) must not have to guess the zone.
+    """
+    dt = None
+    if isinstance(value, (int, float)):
+        dt = datetime.datetime.fromtimestamp(value, datetime.timezone.utc)
+    elif isinstance(value, str) and value.strip():
+        text = value.strip().replace("Z", "+00:00")
+        try:
+            dt = datetime.datetime.fromisoformat(text)
+        except ValueError:
+            return value.split(".")[0]
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+    if dt is None:
+        return ""
+    return dt.astimezone().isoformat(timespec="seconds")
+
+
+def _conv(item: dict, snippet: str = "") -> dict:
+    return {
+        "id": item.get("id") or item.get("conversation_id") or "",
+        "title": _oneline(item.get("title")) or "(untitled)",
+        "update_time": _iso(item.get("update_time")),
+        "snippet": snippet,
+        "project_id": item.get("gizmo_id") or "",
+    }
+
+
+def _get(client, path: str):
+    headers = client._build_headers({"accept": "application/json", "referer": CHAT_URL})
+    status, data = client._json_request("GET", BACKEND + path, None, headers)
+    if status >= 400:
+        raise RuntimeError(f"status={status}: {str(data)[:200]}")
+    return data if isinstance(data, dict) else {}
+
+
+# ── verbs ────────────────────────────────────────────────────────────────────
+
+
+def cmd_projects(client, args) -> list[dict]:
+    data = _get(client, f"/gizmos/snorlax/sidebar?conversations_per_gizmo=1&limit={args.limit}")
+    out = []
+    for item in data.get("items") or []:
+        gizmo = ((item.get("gizmo") or {}).get("gizmo")) or {}
+        gid = gizmo.get("id")
+        if not gid:
+            continue
+        out.append(
+            {
+                "id": gid,
+                "title": _oneline((gizmo.get("display") or {}).get("name")) or "(untitled)",
+                "update_time": _iso(gizmo.get("last_interacted_at") or gizmo.get("updated_at")),
+                "snippet": _oneline(gizmo.get("goal") or (gizmo.get("display") or {}).get("description")),
+                "project_id": gid,
+            }
+        )
+    return out
+
+
+def cmd_list(client, args) -> list[dict]:
+    if not args.project:
+        # Offset paging, and the page size is capped at 100 (measured: limit=101 → 422
+        # "less_than_equal"). Do NOT trust the `total` field on this route: it reads
+        # count+1 while more pages exist and only equals the count once exhausted
+        # (28→29, 50→51, 100→70). Termination is "a short page", not `total`.
+        out: list[dict] = []
+        offset = 0
+        while len(out) < args.limit:
+            page_size = min(100, args.limit - len(out))
+            data = _get(
+                client,
+                f"/conversations?offset={offset}&limit={page_size}&order=updated",
+            )
+            page = data.get("items") or []
+            out.extend(_conv(it) for it in page if it.get("id"))
+            if len(page) < page_size:
+                break
+            offset += len(page)
+        return out[: args.limit]
+
+    # One project. This route pages by opaque cursor, 50 per page (measured).
+    out: list[dict] = []
+    cursor = None
+    while len(out) < args.limit:
+        path = f"/gizmos/{quote(args.project)}/conversations?limit=50"
+        if cursor:
+            path += f"&cursor={quote(cursor)}"
+        data = _get(client, path)
+        page = data.get("items") or []
+        if not page:
+            break
+        out.extend(_conv(it) for it in page if it.get("id"))
+        cursor = data.get("cursor")
+        if not cursor:
+            break
+    return out[: args.limit]
+
+
+def cmd_search(client, args) -> list[dict]:
+    # Search pages by cursor and the FIRST PAGE IS 30, which is not the total.
+    # Measured 2026-09-10 16:0x KST: query="이맥스" → 30 items + cursor="30";
+    # replaying with &cursor=30 → 9 more items, cursor=null. 39 hits, not 30.
+    # Taking page one as the answer silently hides the older matches, which is
+    # exactly the "reopen last month's conversation" path this tool exists for.
+    out: list[dict] = []
+    cursor = None
+    while len(out) < args.limit:
+        path = f"/conversations/search?query={quote(args.query)}"
+        if args.project:
+            path += f"&gizmo_id={quote(args.project)}"
+        if cursor is not None:
+            path += f"&cursor={quote(str(cursor))}"
+        data = _get(client, path)
+        page = data.get("items") or []
+        if not page:
+            break
+        for item in page:
+            if not (item.get("conversation_id") or item.get("id")):
+                continue
+            snippet = _oneline(((item.get("payload") or {}).get("snippet")))[:180]
+            row = _conv(item, snippet)
+            # Search results carry no project field; when scoped, the scope IS the answer.
+            if args.project:
+                row["project_id"] = args.project
+            out.append(row)
+        cursor = data.get("cursor")
+        if not cursor:
+            break
+    return out[: args.limit]
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="cwaq")
+    ap.add_argument("--auth-file", default=None)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p_projects = sub.add_parser("projects", help="list ChatGPT Projects")
+    p_projects.add_argument("--limit", type=int, default=50)
+
+    p_list = sub.add_parser("list", help="recent conversations, optionally one project")
+    p_list.add_argument("--limit", type=int, default=40)
+    p_list.add_argument("--project", default="", help="gizmo id (g-p-…)")
+
+    p_search = sub.add_parser("search", help="search, optionally scoped to one project")
+    p_search.add_argument("query")
+    p_search.add_argument("--limit", type=int, default=40)
+    p_search.add_argument("--project", default="", help="gizmo id (g-p-…)")
+
+    args = ap.parse_args()
+    verbs = {"projects": cmd_projects, "list": cmd_list, "search": cmd_search}
+    try:
+        client = ChatGPTWebClient(auth_file=args.auth_file or _auth_file())
+        items = verbs[args.cmd](client, args)
+    except Exception as error:  # surface as JSON so the caller never parses a traceback
+        json.dump({"ok": False, "command": args.cmd, "error": str(error)}, sys.stdout, ensure_ascii=False)
+        print()
+        return 3
+    json.dump(
+        {"ok": True, "command": args.cmd, "count": len(items), "items": items},
+        sys.stdout,
+        ensure_ascii=False,
+    )
+    print()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
