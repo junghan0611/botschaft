@@ -1,3 +1,4 @@
 cwatui
 __pycache__/
 *.pyc
+*.elc
