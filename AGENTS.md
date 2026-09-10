@@ -62,6 +62,9 @@ internals.**
   would throw that version marker away
 - Upstream CWA moving can break this. When it breaks, do not patch — **measure
   again**
+- The adapter commit is pinned in `run.sh` (`CWA_COMMIT`). Two hosts on two
+  architectures have to agree on which upstream the measurements were taken
+  against, so moving the pin means re-measuring, not just bumping a string
 
 ## How Emacs calls the shim
 

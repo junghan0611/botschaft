@@ -70,6 +70,7 @@ before. Fixing the boundary before using it is how the three above failed.
 | `lisp/` | **The main line.** `botschaft.el` — three read-only commands, working |
 | `tui/` | Go + bubbletea. List, projects, search, read — working |
 | `bin/cwaq` | The query shim both front ends share (Python) |
+| `run.sh` | Setup, build, check and run — the same on x86-64 and aarch64 |
 | `docs/chatgpt-protocol.md` | Measured server behaviour — five traps |
 
 Reading runs **without a browser** (system `curl`). Only writing needs a
@@ -77,28 +78,47 @@ logged-in Chrome.
 
 ## Quick start
 
-All three front ends resolve the auth file to the same XDG location, so one
-login serves every one of them.
+`./run.sh` is the front door. With no arguments it opens a menu; with a
+subcommand it runs headlessly, so another host or an agent can call it directly.
 
 ```bash
-# 1. Set up the ChatGPT backend (CWA) and log in once
+./run.sh setup     # install the ChatGPT backend at the pinned commit, for this architecture
+./run.sh login     # authenticate once -- the only step that opens a browser
+./run.sh doctor    # what is missing, and the one command that fixes it
+./run.sh tui       # build and run
+```
+
+| Subcommand | What it does |
+|---|---|
+| `doctor` | Report what is missing and the fix for each |
+| `setup` | Clone and install the adapter at the pinned commit |
+| `login` | Authenticate once into the XDG state directory, mode 0600 |
+| `build` · `clean` | Build or remove `tui/cwatui` |
+| `test` | `gofmt`, `go vet`, `go test`, byte-compile, `checkdoc` |
+| `smoke` | One live read through the contract |
+| `tui` | Build and run the TUI |
+| `emacs` | Print the Emacs setup snippet resolved for this host |
+
+All front ends resolve the auth file to the same XDG location, so one login
+serves every one of them. By hand, without the script:
+
+```bash
 mkdir -p ~/.local/state/botschaft && chmod 700 ~/.local/state/botschaft
 cwa auth login --auth-file ~/.local/state/botschaft/auth_data.json
 chmod 600 ~/.local/state/botschaft/auth_data.json
 
-# 2. The query shim -- no environment variable needed
 bin/cwaq projects
 bin/cwaq list --limit 50
 bin/cwaq search 'query' --project <project-id>
 
-# 3. The TUI
 cd tui && go build -o cwatui . && ./cwatui
 ```
 
 ### Emacs
 
 Put `lisp/` on your `load-path`. The package finds `bin/cwaq` on its own,
-relative to its own file.
+relative to its own file. `./run.sh emacs` prints this snippet with the paths
+already resolved for the host you are on.
 
 ```elisp
 (add-to-list 'load-path "/path/to/botschaft/lisp")
