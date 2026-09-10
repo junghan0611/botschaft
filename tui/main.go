@@ -1204,31 +1204,31 @@ func (m model) View() string {
 		if n > 0 {
 			idx = m.turnCursor + 1
 		}
-		tools := "tools hidden"
-		if m.showTools {
-			tools = "tools shown"
-		}
 		mode := "read"
 		if m.overview {
 			mode = "overview"
 		}
+		tools := "t-"
+		if m.showTools {
+			tools = "t+"
+		}
 		hit := ""
 		if len(m.findHits) > 0 {
-			hit = fmt.Sprintf(" · hit %d/%d", m.findAt+1, len(m.findHits))
+			hit = fmt.Sprintf(" hit %d/%d", m.findAt+1, len(m.findHits))
 		}
-		bar := fmt.Sprintf(" turn %d/%d · %3.0f%% · %s · %s%s",
-			idx, n, m.vp.ScrollPercent()*100, mode, tools, hit)
+		bar := fmt.Sprintf(" %d/%d %s %s%s",
+			idx, n, mode, tools, hit)
 		if m.loading {
 			bar = spinChars[m.spin] + " " + m.status
 		} else if m.finding {
 			bar = " find " + m.input.View()
 		} else if m.err != nil {
-			bar = fmt.Sprintf(" turn %d/%d · error: %s", idx, n, m.err.Error())
+			bar = fmt.Sprintf(" %d/%d error: %s", idx, n, m.err.Error())
 		} else {
 			if m.status != "" {
 				bar += " · " + m.status
 			}
-			bar += " · [n/p] turn [v] overview [/] find ][ hit [Y] copy [e] fold [t] tools [y] url [esc]"
+			bar += " · n/p v / ][ Y e t y esc"
 		}
 		foot := cBar.Render(truncate(bar, m.w))
 		if m.err != nil && !m.loading && !m.finding {
