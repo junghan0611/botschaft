@@ -63,7 +63,7 @@ Claude 웹은 대응물이 생기면 같은 계약 뒤에 붙는다 — **경계
 |---|---|
 | `tui/` | Go + bubbletea. 목록 · 프로젝트 · 검색 · 읽기 동작 |
 | `bin/cwaq` | 두 프런트가 공유하는 조회 shim (Python) |
-| `lisp/` | **비어 있다. 여기가 본선이다** |
+| `lisp/` | **본선.** `botschaft.el` — 읽기 전용 세 명령 동작 |
 | `docs/chatgpt-protocol.md` | 서버 실측 — 함정 다섯 |
 
 읽기는 **브라우저 없이** 돈다(system `curl`). 쓰기만 로그인된 Chrome을 요구한다.
@@ -83,6 +83,25 @@ bin/cwaq search '검색어' --project <project-id>
 # 3. TUI
 cd tui && go build -o cwatui . && ./cwatui
 ```
+
+Emacs — `lisp/` 를 `load-path` 에 넣고 `botschaft` 를 부른다.
+`bin/cwaq` 는 파일 위치를 기준으로 알아서 찾는다.
+
+```elisp
+(add-to-list 'load-path "~/repos/gh/botschaft/lisp")
+(require 'botschaft)
+(setq botschaft-auth-file "~/.local/state/botschaft/auth_data.json")
+```
+
+| 명령 | 하는 일 |
+|---|---|
+| `botschaft-projects` | 프로젝트를 골라 스코프로 쥔다. `C-u` 면 스코프를 놓는다 |
+| `botschaft-search` | 질의 → 후보(annotation 이 snippet) → 열기. `C-u` 면 전역 |
+| `botschaft-open` | 스코프의 대화 목록 → 열기. `C-u` 면 전역 |
+
+대화 버퍼(`special-mode`)에서 `t` 도구 turn 토글 · `g` 다시 읽기 ·
+`y` URL 복사 · `o` 브라우저 · `q` 닫기.
+`g` 는 캐시를 버리는 게 아니라 **서버를 다시 읽는다** — 캐시가 없다.
 
 | 환경변수 | 쓰임 |
 |---|---|
