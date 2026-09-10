@@ -1,12 +1,16 @@
 # NEXT — botschaft
 
 ```
-RAIL  1 read contract ✅ → 2 TUI verification ✅ → 3 Emacs read ✅ → 4 [now] write (send) → 5 Claude backend
+RAIL  1 read contract ✅ → 2 TUI verification ✅ → 3 Emacs read ✅ → 4 write (#2) → 5 Claude backend (#3)
 ```
 
-## NOW — reading is done. The next door is the owner's to open
+The issue tracker carries the shape of the work; this file carries the next
+concrete move. Doors: **#2** write path · **#3** Claude backend · **#4** upstream
+verbs · **#5** packaging. **#1** is the roadmap that ties them together.
 
-`lisp/botschaft.el` runs against a live account. All three commands work:
+## NOW — reading is done. The next door is the owner's to open (#2)
+
+`lisp/botschaft.el` runs against a live account, zero-config:
 
 - `botschaft-projects` — pick a project and hold it as the scope (`C-u` clears)
 - `botschaft-search` — query → candidates (snippet as annotation) → open
@@ -14,53 +18,43 @@ RAIL  1 read contract ✅ → 2 TUI verification ✅ → 3 Emacs read ✅ → 4 
 
 One `completing-read` was enough. No `tabulated-list-mode`, no new UI framework,
 built-ins only (`seq`, `subr-x`, `browse-url`, `json-parse-buffer`).
-Byte-compile and `checkdoc` are both clean.
-The **Reproduction** section of `docs/chatgpt-protocol.md` is those four traps
-measured again from this second front end — nothing out of line.
+Byte-compile, `checkdoc`, `gofmt` and `go vet` are all clean.
 
-**Do not start RAIL 4 (writes) before the owner opens that door.**
+**Do not start RAIL 4 before the owner opens that door** — see #2 for why it is
+not an implementer's call.
 
-### When writes open (RAIL 4)
+## What the last session settled
 
-- `cwa send --conversation <id>` is the continue path. Wiring is one command plus
-  loading the Chrome extension once (`cwa browser-native install` → `extension-dir`)
-- Order matters: **continue an existing conversation first, create new ones later**
-  (CWA #79 — a new conversation's id is promoted to `WEB:<uuid>`, which the
-  canonical read then rejects)
-- The read commands are synchronous (2–3s per query, ~3s per read). Writing waits
-  on a different order of magnitude, so **that is where async first earns its
-  keep.** There was no reason to make reads async ahead of it
-
-### After that (RAIL 5)
-
-- Claude web. Candidate counterpart: `cyber-wojtek/Claude-API` (2026-05-28, ★14)
-- **Generalise the interface then. Not before**
-
-## Open decisions (owner)
-
-- **Whether to open the write door** — start RAIL 4 or not
-- The repository is public as of 2026-09-10. Every document is English; keep any
-  new one that way, and keep conversation titles and project names out
-- Whether to declare dependencies in the environment repository. The Emacs side
-  needs nothing new — built-ins only. Just Python ≥3.10 and system `curl`
-- A feature request to send upstream to CWA: expose `list` / `search` /
-  `projects`. When they land, delete `bin/cwaq` and a few strings in both front ends
-- Packaging: MELPA recipe, or leave it as a `load-path` package
-- Nothing has been pushed since the RAIL 3 work
+- The four front-end-observable traps in `docs/chatgpt-protocol.md` were measured
+  again from the Emacs side. **Nothing out of line.** The Reproduction section is
+  that table
+- The repository went public. Every document, comment and docstring is English.
+  Two comments in `tui/` had quoted live conversation titles as evidence; they
+  now cite the code point alone
+- The auth file resolves through XDG in all three components, so one login serves
+  every front end and no personal path is baked into the source
+- Three rules in `AGENTS.md` were wrong and are corrected: the shim carries three
+  verbs and not four, the auth location was a decision stated as a fact, and the
+  English-only rule lived only in `README.md`
 
 ## Loose ends (not blocking)
 
-- **Queries are synchronous, so Emacs blocks for 2–3s.** Not much is gained by
-  going async, since the candidates cannot be shown before the data arrives.
-  Revisit under writes
+- **Queries are synchronous, so Emacs blocks for 2–3s.** Little is gained by going
+  async, since candidates cannot be shown before the data arrives. Writes are
+  where it first earns its keep — noted in #2
 - **`botschaft-open` refetches the list every time.** Not caching is the house
   rule, so this is intended. Lower `botschaft-list-limit` if it drags
 - The conversation buffer leaves markdown as raw text. Whether to render it with
   `markdown-mode` is undecided
+- The shim is found relative to `botschaft.el`, which works from a checkout but
+  not from an installed package. That has to be solved before a MELPA recipe
+  makes sense — tracked in #5
+- Nothing has been pushed since RAIL 3 began
 
 ## Where to read
 
-- `README.md` — the contract, why existing abstractions cannot hold it, Emacs setup and keys
+- `README.md` — the contract, why existing abstractions cannot hold it, setup and keys
 - `AGENTS.md` — the rules of this house. **The server is canonical** is the core one
 - `docs/chatgpt-protocol.md` — five measured server facts plus the second front end's reproduction
+- `docs/prior-art.md` — two survey rounds; do not buy this research twice
 - `lisp/botschaft.el` — the Commentary explains the shape before the code does
