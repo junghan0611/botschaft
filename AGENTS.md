@@ -1,91 +1,111 @@
 # botschaft — AGENTS.md
 
-## 이 집이 무엇인가
+## What this house is
 
-**내 하네스 밖에 사는 대화를 내 자리로 가져오는 창구.** 가져오는 것은 대화가 아니라
-**접근**이다. 이 구분이 이 리포의 모든 규칙을 만든다.
+**A window that brings a conversation living outside my harness to my own seat.**
+What it brings is **access**, not the conversation. That distinction generates
+every rule in this repository.
 
-GLG는 ChatGPT 웹의 프로젝트별 대화 상대를 *"지피티앱 가든 담당자"*, *"지피티앱 entwurf
-담당자"*라 부른다. 그쪽은 **GLG의 하네스가 아니다** — 1KB 프롬프트도 일부러 넣지 않았다.
-검색이 잘 붙어 있어 외부 소스를 물어오고, 세션 크기를 걱정하지 않아도 되고, 개발은 못 한다.
-GLG는 주제가 오면 그 세션을 꺼내 묻는다. 이 도구는 **그 만남을 터미널과 Emacs로 옮긴다.**
+The counterpart on the other side is deliberately **not my harness** — no
+identity prompt was ever installed there. It has search wired in, so it pulls in
+outside sources; it never has to worry about session size; and it cannot code.
+You pull that session out when a topic comes up. This tool **moves that meeting
+into the terminal and Emacs.**
 
-그래서 이름이 `Botschaft`다 — 메시지이자 대사관. 남의 나라에 둔 창구이지 식민지가 아니다.
+Hence the name `Botschaft`: message, and embassy. A window kept in someone else's
+country, not a colony.
 
-## 절대 규칙 — 서버가 정본이다
+## The absolute rule — the server is canonical
 
-**로컬에 대화 저장소를 만들지 않는다.** 이건 취향이 아니라 이 집의 존재 이유다.
+**Never build a local conversation store.** This is not a preference; it is why
+the house exists.
 
-- `snapshot` / `export`를 부르지 않는다. 캐시 DB를 만들지 않는다
-- 로컬 파일이 정본이 되는 순간 **이어 쓰기가 원리적으로 불가능**해진다.
-  `conversations.json` export 리더들이 정확히 그래서 실패한다
-- sqlite로 세션을 보관하는 TUI(oterm 등)의 UX는 참고해도 **저장 구조는 따라가지 않는다.**
-  그들은 자기가 만든 대화를 보관하고, 우리는 남이 가진 대화를 조회한다
+- Never call `snapshot` or `export`. Never build a cache database
+- The moment a local file becomes canonical, **continuing a conversation becomes
+  impossible in principle.** That is exactly how `conversations.json` export
+  readers fail
+- The UX of TUIs that keep sessions in sqlite (oterm and friends) is worth
+  studying, but **their storage model is not.** They keep conversations they
+  created; we query conversations someone else holds
 
-예외는 **설정**뿐이고, 그것도 GLG 판정을 받는다. 마지막으로 본 프로젝트 같은 것.
+The one exception is **configuration**, and even that needs a decision from the
+repository owner — something like "the project you looked at last".
 
-## 계약이 정본, 백엔드는 갈아끼운다
+## The contract is canonical; backends are swapped
 
 ```
 projects · list · search · read  (+ send)
 ```
 
-- 프런트(Emacs · TUI)는 **이 동사만** 안다. CWA를 직접 부르지 않는다
-- 오늘 잡은 서버 함정 다섯이 **전부 계약 층에서 잡혔고 프런트는 한 줄도 안 고쳤다.**
-  그게 이 경계가 옳다는 증거다. 함정이 프런트로 새면 경계가 틀린 것이다
-- **Claude 웹 백엔드는 TODO다. 지금 인터페이스를 일반화하지 않는다.**
-  써보기 전에 경계를 정하는 것이 `gptel-backend`와 `LlmProvider`가 실패한 방식이다
-  (`README.md` 표 참고). 두 번째 제품을 실제로 붙일 때 확정한다
+- The front ends (Emacs, TUI) know **only these verbs.** They never call the
+  adapter directly
+- All five server traps measured on day one were caught **at the contract layer,
+  and neither front end needed a single line about them.** That is the evidence
+  the boundary is right. If a trap leaks into a front end, the boundary is wrong
+- **A Claude web backend is a TODO. Do not generalise the interface now.**
+  Fixing a boundary before using it is how `gptel-backend` and `LlmProvider`
+  failed (see the table in `README.md`). Settle it when a second product is
+  actually attached
 
-## `bin/cwaq`는 지워지려고 있다
+## `bin/cwaq` exists in order to be deleted
 
-CWA 0.3.0 공개 CLI에는 `list`·`search`·`projects` 동사가 없다. 그래서 shim이 한 겹
-아래로 내려가 엔드포인트를 직접 친다 — **CWA 비공개 메서드에 의존한다.**
+CWA 0.3.0's public CLI has no `list`, `search` or `projects` verb. So the shim
+reaches one level down and hits the endpoints directly — **it depends on CWA
+internals.**
 
-- 이건 빚이고, 빚인 채로 둔다. 상위가 동사를 노출하면 `cwaq`를 지운다
-- 그러니 **shim을 키우지 않는다.** shim이 지는 것은 `projects`·`list`·`search`
-  **셋뿐이고, `read`는 shim에 넣지 않는다.** 넷째 동사 `read`는 공개 CLI
-  `cwa messages`가 지고, 그쪽만 `schema` 번호가 붙은 계약이다.
-  읽기를 shim으로 끌어내리면 그 버전 표식을 버리게 된다
-- 상위 CWA가 올라가면 깨질 수 있는 자리다. 깨지면 고치는 게 아니라 **다시 잰다**
+- This is a debt, and it is left as a debt. The day upstream exposes the verbs,
+  delete `cwaq`
+- Therefore **do not grow the shim.** It carries exactly three verbs —
+  `projects`, `list`, `search` — and **`read` is not one of them.** The fourth
+  verb, `read`, belongs to the public `cwa messages`, and that is the only
+  contract here carrying a `schema` number. Pulling reads down into the shim
+  would throw that version marker away
+- Upstream CWA moving can break this. When it breaks, do not patch — **measure
+  again**
 
-## Emacs가 shim을 부르는 법
+## How Emacs calls the shim
 
-**bare 실행하면 안 된다.** `#!/usr/bin/env python3` shebang은 그 파이썬에 CWA가
-설치돼 있다는 보장이 없다. TUI도 그러지 않는다 — `$CWA_PY bin/cwaq …`로 명시 실행한다.
-Emacs가 소유할 것은 HTTP 구현이 아니라 **버전 고정된 shim + 인터프리터 탐색 + 안정된
-JSON 계약** 셋이다.
+**Never execute it bare.** A `#!/usr/bin/env python3` shebang is no guarantee
+that the interpreter it finds has the adapter installed. The TUI does not do this
+either — it runs `$CWA_PY bin/cwaq …` explicitly. What Emacs owns is not an HTTP
+implementation but three things: **a pinned shim, interpreter discovery, and a
+stable JSON contract.**
 
-## 사실을 다루는 법
+## How to handle facts
 
-이 집은 **문서에 없는 서버 습성** 위에 선다. 그래서:
+This house stands on **undocumented server behaviour**. So:
 
-- **검색 수치는 질의와 시각을 같이 적는다.** 인덱스가 살아 있어 수가 변한다.
-  질의·시각 없는 검색 수치는 사실이 아니라 인상이다
-- **화면에 보인 것을 실측으로 적지 않는다.** 페이징되는 데이터에서 특히 위험하다
-  (이 리포 1일차에 실제로 저지른 실수다 — 캡처에 보인 5줄을 세어 적었고 실제는 12였다)
-- 서버 사실을 새로 재면 `docs/chatgpt-protocol.md`에 날짜와 함께 남긴다
+- **Record the query and the time alongside any search count.** The index is
+  live and the numbers move. A search count without its query and timestamp is
+  an impression, not a fact
+- **Never write down what appeared on screen as a measurement.** This is
+  especially dangerous with paged data (an actual mistake on day one of this
+  repository: five rows visible in a capture were counted and recorded; the real
+  answer was 12)
+- When a server fact is measured anew, leave it in `docs/chatgpt-protocol.md`
+  with the date
 
-## 공개와 안전
+## Publishing and safety
 
-- CWA는 **비공식 어댑터**다. 계정 리스크가 0이 아니고 이 집은 그것을 물려받는다
-- `auth_data.json`은 access token + cookies다. **커밋 금지.**
-  집은 `~/.local/state/botschaft/`로 **정했지만 아직 옮기지 않았다** — 실물은
-  CWA 작업 디렉터리에 있고, 두 프런트가 문서 경로를 먼저 보고 없으면 실물로 떨어진다.
-  옮기는 것은 GLG 판정이다
-- 대화 제목·본문·프로젝트 이름은 **개인 데이터**다. 문서·이슈·커밋 메시지에 넣지 않는다.
-  실측을 적을 땐 수치와 구조만 남기고 이름은 지운다
-- 커밋 로그에 AI 서명(`Generated with`, `Co-Authored-By`)을 넣지 않는다
-- **화면 문자열은 영어, 문서와 주석은 한국어다.** 두 프런트가 같이 진다
+- CWA is an **unofficial adapter**. The risk to the account is not zero, and this
+  house inherits it
+- `auth_data.json` holds an access token and cookies. **Never commit it.** Its
+  home is `~/.local/state/botschaft/`
+- Conversation titles, bodies and project names are **personal data**. They do
+  not go into documents, issues or commit messages. When recording a
+  measurement, keep the numbers and the structure and drop the names
+- No AI attribution in commit logs (`Generated with`, `Co-Authored-By`)
+- **Interface strings, documentation and comments are all English.** Both front
+  ends carry this
 
-## 경계
+## Boundaries
 
-| | 소유 |
+| | Owner |
 |---|---|
-| 계약(네 동사)과 shim | **여기** |
-| Emacs 패키지 | **여기** — `lisp/`. 본선이다 |
-| TUI | **여기** — `tui/`. 검수 표본이지 최종 산출물이 아니다 |
-| ChatGPT 웹 프로토콜 사실 | **여기** — `docs/chatgpt-protocol.md` |
-| CWA 자체의 버그·기능 | 상위 리포. 여기서 고치지 않고 **보고한다** |
-| 설치·의존성 선언 | `nixos-config` — 판정 나면 |
-| 커밋/푸시 결정 | **GLG** |
+| The contract (four verbs) and the shim | **here** |
+| The Emacs package | **here** — `lisp/`. The main line |
+| The TUI | **here** — `tui/`. A verification harness, not the deliverable |
+| Facts about the ChatGPT web protocol | **here** — `docs/chatgpt-protocol.md` |
+| Bugs and features of CWA itself | upstream. Report them; do not fix them here |
+| Installation and dependency declarations | the environment repository, once decided |
+| Deciding on commits and pushes | the repository owner |

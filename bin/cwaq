@@ -44,7 +44,7 @@ BACKEND = "https://chatgpt.com/backend-api"
 
 def _auth_file() -> str:
     return os.environ.get("CWA_AUTH") or os.path.expanduser(
-        "~/tmp/cwa-phase1/auth_data.json"
+        "~/.local/state/botschaft/auth_data.json"
     )
 
 
@@ -161,8 +161,8 @@ def cmd_list(client, args) -> list[dict]:
 
 def cmd_search(client, args) -> list[dict]:
     # Search pages by cursor and the FIRST PAGE IS 30, which is not the total.
-    # Measured 2026-09-10 16:0x KST: query="이맥스" → 30 items + cursor="30";
-    # replaying with &cursor=30 → 9 more items, cursor=null. 39 hits, not 30.
+    # Measured 2026-09-10 16:0x KST: one query returned 30 items + cursor="30";
+    # replaying with &cursor=30 gave 9 more items and cursor=null. 39 hits, not 30.
     # Taking page one as the answer silently hides the older matches, which is
     # exactly the "reopen last month's conversation" path this tool exists for.
     out: list[dict] = []

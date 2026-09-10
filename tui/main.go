@@ -47,15 +47,26 @@ func env(key, fallback string) string {
 	return fallback
 }
 
+// loadConfig resolves the two binaries off PATH and the auth file to its
+// documented home. Every value is overridable, because the interpreter that can
+// import the adapter is usually a virtualenv rather than the system python.
 func loadConfig() config {
 	home, _ := os.UserHomeDir()
-	root := filepath.Join(home, "tmp", "cwa-phase1")
 	return config{
-		cwaBin:   env("CWA_BIN", filepath.Join(root, "src", ".venv", "bin", "cwa")),
-		pyBin:    env("CWA_PY", filepath.Join(root, "src", ".venv", "bin", "python")),
+		cwaBin:   env("CWA_BIN", lookup("cwa")),
+		pyBin:    env("CWA_PY", lookup("python3")),
 		cwaqBin:  env("CWAQ_BIN", findShim()),
-		authFile: env("CWA_AUTH", filepath.Join(root, "auth_data.json")),
+		authFile: env("CWA_AUTH", filepath.Join(home, ".local", "state", "botschaft", "auth_data.json")),
 	}
+}
+
+// lookup returns the absolute path of name on PATH, or name itself so the
+// startup preflight can report an honest miss.
+func lookup(name string) string {
+	if path, err := exec.LookPath(name); err == nil {
+		return path
+	}
+	return name
 }
 
 // findShim locates bin/cwaq without assuming where the binary was built or run
@@ -649,7 +660,7 @@ func (m model) renderConversation() string {
 		case isTool:
 			head = cTool.Render(fmt.Sprintf("── %s → %s", t.Role, t.Recipient))
 		case t.Role == "user":
-			head = cUser.Render("── GLG")
+			head = cUser.Render("── You")
 		default:
 			label := "── ChatGPT"
 			if t.Model != "" {
@@ -667,7 +678,7 @@ func (m model) renderConversation() string {
 }
 
 // sane strips runes a terminal cannot measure. ChatGPT titles carry unassigned
-// code points (measured 2026-09-10: "브랜치 · 이슈 분석 \U0007FFFF"); lipgloss.Width
+// code points (measured 2026-09-10: a live title ended in U+7FFFF); lipgloss.Width
 // reports 1 for them while the terminal draws 2, which pushed a whole row off screen.
 func sane(s string) string {
 	var b strings.Builder
@@ -680,9 +691,10 @@ func sane(s string) string {
 }
 
 // oneLine collapses the vertical whitespace a single-row cell cannot hold.
-// Measured 2026-09-10: two live titles were "…이슈 분석 \U0005FFFF\n" — a trailing
-// newline from the server pushed the whole list down a row and scrolled the header
-// off screen. Server data is not guaranteed to be one line; the renderer guards.
+// Measured 2026-09-10: two live titles ended in U+5FFFF followed by a newline, and
+// that trailing newline from the server pushed the whole list down a row, scrolling
+// the header off screen. Server data is not guaranteed to be one line; the renderer
+// guards.
 var oneLine = strings.NewReplacer("\n", " ", "\r", " ", "\t", " ")
 
 func truncate(s string, w int) string {

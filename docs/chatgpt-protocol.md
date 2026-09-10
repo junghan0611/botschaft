@@ -1,109 +1,126 @@
-# ChatGPT 웹 백엔드 — 서버 실측
+# The ChatGPT web backend — measured server behaviour
 
-한 계정에서 2026-09-10 측정. **이 문서가 이 리포의 실제 기여다** — 아래 다섯은
-문서에 없고, 코드로 부딪혀야 알 수 있으며, 다른 팀들도 빠졌다.
+Measured against one account on 2026-09-10. **This document is this repository's
+real contribution**: none of the five below is documented anywhere, each has to
+be found by running into it, and other teams have missed them too.
 
-## 엔드포인트
+## Endpoints
 
 ```
-GET /backend-api/conversations?offset&limit&order=updated        전역 목록
-GET /backend-api/conversations/search?query=[&gizmo_id=]          검색
-GET /backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo&limit   프로젝트 목록
-GET /backend-api/gizmos/<gizmo_id>/conversations?limit&cursor     한 프로젝트의 대화
-GET /backend-api/conversation/<id>                                한 대화 (CWA `messages`가 씀)
+GET /backend-api/conversations?offset&limit&order=updated        every conversation
+GET /backend-api/conversations/search?query=[&gizmo_id=]          search
+GET /backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo&limit   the project list
+GET /backend-api/gizmos/<gizmo_id>/conversations?limit&cursor     one project's conversations
+GET /backend-api/conversation/<id>                                one conversation (used by `cwa messages`)
 ```
 
-## 함정 다섯
+## The five traps
 
-### 1. 전역 목록에 프로젝트 대화가 하나도 없다
+### 1. The global list contains no project conversations at all
 
-두 집합의 교집합이 **0**이다. 측정한 계정에서:
+The two sets do not intersect. On the measured account:
 
-| | 대화 수 |
+| | Conversations |
 |---|---|
-| 프로젝트 3개 합 | 262 |
-| 프로젝트 밖 (전역 목록 전량) | 70 |
+| Three projects, combined | 262 |
+| Outside any project (the entire global list) | 70 |
 
-**79%가 전역 목록 밖에 있다.** 프로젝트 축이 없는 뷰어는 대화 대부분을 못 본다.
+**79% lives outside the global list.** A viewer without a project axis cannot see
+most of the account.
 
-### 2. `gizmo_id`는 목록에서 무시되고 검색에서만 먹는다
+### 2. `gizmo_id` is ignored by the list route and honoured only by search
 
-- `/conversations?...&gizmo_id=<id>` → 파라미터를 **조용히 무시**하고 전역 목록을 돌려준다
-- `/conversations/search?...&gizmo_id=<id>` → **존중한다** (한 질의에서 전역 4건 → 스코프 1건)
+- `/conversations?...&gizmo_id=<id>` → **silently ignores** the parameter and
+  returns the global list
+- `/conversations/search?...&gizmo_id=<id>` → **honours it** (4 hits globally → 1
+  when scoped, on one query)
 
-같은 이름의 파라미터가 route마다 다르게 취급된다.
+The same parameter name is treated differently per route.
 
-### 3. 검색은 커서로 페이징하고, 첫 페이지 30건은 총계가 아니다
+### 3. Search pages by cursor, and the first 30 hits are not the total
 
-`?query=…` → 30 items + `cursor="30"`. `&cursor=30`을 붙이면 나머지가 온다.
-한 질의에서 30 → **39**, 다른 질의에서는 30 → **101**이었다.
-**끝은 `cursor == null`로 안다.** 커서를 버리면 오래된 hit가 조용히 사라지는데,
-하필 "한 달 전 대화를 찾아 다시 연다"가 이런 도구의 존재 이유다.
+`?query=…` → 30 items plus `cursor="30"`. Appending `&cursor=30` returns the rest.
+One query went 30 → **39**; another went 30 → **101**.
+**The end is `cursor == null`.** Dropping the cursor silently hides the older
+matches — which is precisely the "find and reopen last month's conversation" path
+this kind of tool exists for.
 
-### 4. 전역 목록의 `total` 필드는 총계가 아니다
+### 4. The `total` field on the global list is not a total
 
-남은 페이지가 있으면 **`개수+1`**을 돌려주고, 소진했을 때만 실제 개수와 같아진다:
+While pages remain it returns **`count + 1`**, and equals the real count only once
+exhausted:
 
 ```
 limit=28  → items 28, total 29
 limit=50  → items 50, total 51
-limit=100 → items 70, total 70     ← 여기가 진짜 끝
-limit=101 → HTTP 422 (상한 100)
+limit=100 → items 70, total 70     <- the real end
+limit=101 → HTTP 422 (cap is 100)
 ```
 
-**종료 조건은 `total`이 아니라 짧은 페이지다.** 프로젝트 route는 opaque cursor를 쓴다(50/page).
+**The termination condition is a short page, not `total`.** The project route uses
+an opaque cursor instead (50 per page).
 
-### 5. 시간 타입이 route마다 다르고, 제목은 한 줄이 아니다
+### 5. Time types differ per route, and titles are not one line
 
-- 전역 목록 `update_time` = `"2026-09-10T05:27:04.545482Z"` (UTC 문자열)
-- 검색 `update_time` = epoch float
+- Global list `update_time` = `"2026-09-10T05:27:04.545482Z"` (a UTC string)
+- Search `update_time` = an epoch float
 
-앞을 naive로 읽고 뒤를 local로 읽으면 **같은 대화가 같은 목록 안에서 9시간 어긋난다.**
-각각을 제 타입으로 파싱해 한 축으로 옮기고 **offset을 문자열에 남겨야** 한다.
+Reading the first as naive and the second as local puts **the same conversation
+nine hours apart inside the same list.** Parse each as what it is, move both onto
+one axis, and **keep the offset in the string.**
 
-그리고 제목에 **후행 개행과 미할당 코드포인트**가 들어온다(실측 `"…\U0005FFFF\n"`).
-개행 하나가 목록 렌더를 한 줄 밀어 헤더를 화면 밖으로 보냈다.
-**서버 문자열이 한 줄이라고 가정하면 안 된다.**
+Titles also arrive with **trailing newlines and unassigned code points**
+(measured: `"…\U0005FFFF\n"`). One newline pushed the list render down a row and
+scrolled the header off screen. **Never assume a server string is one line.**
 
-## 재현 — Emacs 프런트에서 다시 잰 값 (2026-09-10 17:2x KST)
+## Reproduction — measured again from the Emacs front end (2026-09-10, 17:2x KST)
 
-두 번째 프런트(`lisp/botschaft.el`)를 붙이며 같은 계정에 다시 물었다.
-**다섯 함정 중 프런트에서 관측 가능한 넷이 전부 재현됐고, 어긋난 값은 없다.**
+The same account was asked again while the second front end (`lisp/botschaft.el`)
+was attached. **Four of the five traps are observable from a front end, and all
+four reproduced with no value out of line.**
 
-| 사실 | 최초 실측 | 재현 |
+| Fact | First measurement | Reproduction |
 |---|---|---|
-| 전역 목록 ∩ 프로젝트 대화 | 0 | **0** (전역 70, 프로젝트 한 개 171) |
-| `gizmo_id` — 검색에서만 먹는다 | 전역 4 → 스코프 1 | 같은 질의 전역 **39** → 스코프 **1** |
-| 검색 첫 페이지 30 ≠ 총계 | 30 → 39 | 커서 끝까지 **39** (17:26 KST) |
-| 도구 turn 은 `recipient` 로 가른다 | 42 turn → 17 | **42 → 17** (`recipient != "all"` 25건) |
-| route 마다 다른 시간 타입 | 9시간 어긋남 | 두 route 에 함께 나온 **9건, 불일치 0** |
+| Global list ∩ project conversations | 0 | **0** (global 70, one project 171) |
+| `gizmo_id` honoured only by search | 4 global → 1 scoped | same query: **39** global → **1** scoped |
+| First search page of 30 ≠ total | 30 → 39 | **39** following the cursor to the end (17:26 KST) |
+| Tool turns split on `recipient` | 42 turns → 17 | **42 → 17** (25 with `recipient != "all"`) |
+| Time types differ per route | nine hours apart | **9** conversations in both routes, **0** mismatches |
 
-전역 목록 수(70)는 최초 실측과 같고, 프로젝트 한 개의 171 은 그날 잰
-3개 합 262 의 일부라 직접 비교 대상이 아니다.
-검색 수치는 질의 `"이맥스"` · 2026-09-10 17:26–17:28 KST 기준이다 —
-인덱스가 살아 있어 다음에 재면 달라진다.
+The global count (70) matches the first measurement. The 171 in one project is
+part of the 262 measured across three that day, so it is not a direct comparison.
+Search counts are for one Korean-language query (the word for "Emacs") between 17:26 and 17:28 KST — the index
+is live, so measuring again will give different numbers.
 
-넷은 계약(shim) 층에서 이미 잡혀 있었고 **elisp 은 한 줄도 이 사실을 다시 다루지
-않는다.** 프런트가 두 개가 되어도 함정이 새지 않았다는 것이 경계가 옳다는 두 번째 증거다.
+All four were already carried at the contract layer, and **the Emacs code does not
+handle any of these facts a second time.** That the traps did not leak once a
+second front end existed is the second piece of evidence that the boundary is
+drawn in the right place.
 
-## 읽기와 쓰기는 다른 문을 쓴다
+## Reading and writing go through different doors
 
-`cwa doctor` 실측: 인증만 마치면 목록·검색·읽기가 전부 성공하는데 같은 시점에
-`bridge.*`는 FAIL이다. **읽기에 브라우저 확장은 필요 없다.** 남은 FAIL은 전부 쓰기 배선이다:
+Measured with `cwa doctor`: once authentication is done, listing, searching and
+reading all succeed while `bridge.*` is FAIL at the same moment. **Reading needs
+no browser extension.** Every remaining FAIL belongs to the write path:
 
 ```
 install.native_host_manifest · install.native_host_registration
 bridge.available · bridge.extension_connected · runtime.health
 ```
 
-`cwa browser-native install` + Chrome에 압축해제 확장 로드로 닫힌다.
+They close with `cwa browser-native install` plus loading the unpacked extension
+into Chrome.
 
-**쓰기 착수 순서 주의:** CWA upstream #79(미해결)가 **새 대화** id를 `WEB:<uuid>`로 승격해
-canonical read가 거부한다. **기존 대화 이어쓰기를 먼저, 새 대화를 나중에** 해야 한다.
+**Order matters when starting on writes:** CWA upstream #79 (open) promotes a
+**new** conversation's id to `WEB:<uuid>`, which the canonical read then rejects.
+**Continue an existing conversation first, create new ones later.**
 
-## 참고 — 다른 구현도 빠진 자리
+## For reference — where other implementations stopped
 
-`Octo-Lex/ChatGPT-Web2API`(2026-09-01)는 `src/chatgpt_web2api/backend_client.py:427`에서
-`sidebar?conversations_per_gizmo=5`를 부르면서 응답의 `conversations`를 매퍼에서 버린다.
-`/gizmos/<id>/conversations`는 그 리포 어디에도, 그들의 `docs/protocol-reference.md`
-엔드포인트 표에도 없다. 활발한 독립 리버스엔지니어링 팀도 이 자리를 놓쳤다.
+`Octo-Lex/ChatGPT-Web2API` (2026-09-01) calls
+`sidebar?conversations_per_gizmo=5` at
+`src/chatgpt_web2api/backend_client.py:427` and then discards the response's
+`conversations` in its mapper. `/gizmos/<id>/conversations` appears nowhere in
+that repository, nor in the endpoint table of their own
+`docs/protocol-reference.md`. An active, independent reverse-engineering team
+missed this same slot.
