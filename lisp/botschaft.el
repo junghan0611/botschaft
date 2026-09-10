@@ -71,7 +71,12 @@ shim 은 이 인터프리터로 실행된다.  bare 실행하지 않는 이유�
 
 (defcustom botschaft-auth-file
   (or (getenv "CWA_AUTH")
-      (expand-file-name "~/tmp/cwa-phase1/auth_data.json"))
+      (let ((documented (expand-file-name "~/.local/state/botschaft/auth_data.json")))
+        (if (file-exists-p documented)
+            documented
+          ;; AGENTS.md 는 `~/.local/state/' 를 집으로 정했지만 지금 살아 있는 파일은
+          ;; 아직 CWA 의 작업 디렉터리에 있다.  문서를 따르되 없으면 실물로 떨어진다.
+          (expand-file-name "~/tmp/cwa-phase1/auth_data.json"))))
   "인증 파일.  access token 과 cookie 가 들어 있다 — 비밀이다."
   :type 'file)
 
@@ -198,6 +203,17 @@ shim 은 실패도 stdout 에 JSON 으로 적고 종료코드만 0 이 아니다
          "--limit" (number-to-string botschaft-search-limit)
          (unless global (botschaft--scope-args))))
 
+(defconst botschaft-read-schema 1
+  "우리가 읽을 줄 아는 `cwa messages' 의 schema 판.
+
+읽기만이 버전이 붙은 계약이다 — 응답에 `schema' 가 온다.  상위가 이 수를 올리면
+`role' `recipient' `text' 중 무엇이 이름을 바꿨는지 모르는 채로 렌더가 조용히
+빈 turn 을 그릴 수 있다.  그래서 다르면 경고한다.  막지는 않는다 — 서버가 정본이고
+읽기는 안전하다.")
+
+(defvar botschaft--schema-warned nil
+  "이번 세션에서 schema 경고를 이미 했는지.  한 대화마다 반복하지 않는다.")
+
 (defun botschaft-read-fetch (id)
   "대화 ID 의 turn 전체.  공개 CLI 를 통한다."
   (let ((data (botschaft--run-json
@@ -207,6 +223,15 @@ shim 은 실패도 stdout 에 JSON 으로 적고 종료코드만 0 이 아니다
                      "--limit" (number-to-string botschaft-read-limit)))))
     (unless (alist-get 'ok data)
       (user-error "botschaft: read failed (schema=%s)" (alist-get 'schema data)))
+    (let ((schema (alist-get 'schema data)))
+      (when (and schema (not (equal schema botschaft-read-schema))
+                 (not botschaft--schema-warned))
+        (setq botschaft--schema-warned t)
+        (display-warning
+         'botschaft
+         (format "cwa messages schema %s (expected %s) -- turn 필드가 바뀌었을 수 있다"
+                 schema botschaft-read-schema)
+         :warning)))
     (alist-get 'messages data)))
 
 ;;; ── 고르기 ───────────────────────────────────────────────────────────────────
