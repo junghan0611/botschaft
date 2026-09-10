@@ -165,6 +165,8 @@ what it is."
   "Run PROGRAM with ARGS and return the JSON on its stdout as an alist.
 The shim reports failure as JSON on stdout and signals only through its
 exit code, so stdout is parsed before the exit code is consulted."
+  (unless (executable-find program)
+    (user-error "Botschaft: cannot find %s" program))
   (let ((stderr (make-temp-file "botschaft-err")))
     (unwind-protect
         (with-temp-buffer
