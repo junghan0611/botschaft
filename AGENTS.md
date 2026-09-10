@@ -94,8 +94,12 @@ This house stands on **undocumented server behaviour**. So:
   house inherits it
 - `auth_data.json` holds an access token and cookies. **Never commit it.** Its
   home is `$XDG_STATE_HOME/botschaft/`, falling back to
-  `~/.local/state/botschaft/`, mode 0600 in a 0700 directory. All three
-  components resolve that one path, so one login serves every front end
+  `~/.local/state/botschaft/`, mode 0600 in a 0700 directory. All components on
+  one machine resolve that one path, so one login serves every front end there
+- **One auth file per host. Never copy it to another machine** — each runs its
+  own `./run.sh login`. Sharing one credential across two egress IPs preceded a
+  browser logout on 2026-09-10; the measurement, including what was ruled out,
+  is in `docs/chatgpt-protocol.md`
 - Conversation titles, bodies and project names are **personal data**. They do
   not go into documents, issues or commit messages. When recording a
   measurement, keep the numbers and the structure and drop the names

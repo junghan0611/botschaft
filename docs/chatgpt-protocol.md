@@ -97,6 +97,32 @@ handle any of these facts a second time.** That the traps did not leak once a
 second front end existed is the second piece of evidence that the boundary is
 drawn in the right place.
 
+## One auth file, two hosts — do not (2026-09-10, unproven)
+
+The auth file was copied to a second machine so reading would work from both. It
+did work: the same token answered from a home connection and from a cloud VM.
+About twenty-five minutes after the second host started reading, the account's
+**browser** session was logged out.
+
+This is recorded as an observation, not a proven cause. What was measured:
+
+| Question | Answer |
+|---|---|
+| Do reads rotate or rewrite the auth file? | **No** — same checksum and mtime before and after |
+| Did the adapter's login take over an existing browser profile? | **No** — it keeps its own persistent profile |
+| Were all sessions for the account invalidated? | **No** — the extracted token still answered from both hosts afterwards |
+| Had the token expired? | **No** — the access token had ten days left and the session three months |
+
+So nothing on this side rotated a credential, and the logout was selective: the
+browser session died while the extracted token lived. The only new condition was
+the second egress IP, in a different network and a different region.
+
+**The operational rule that follows: one auth file per host.** Each machine runs
+its own `./run.sh login`. Copying credentials between hosts is what created the
+condition, it saves only one browser interaction, and the failure it invites is
+one that logs *you* out while the tool keeps working — so you find out from the
+browser, not from the tool.
+
 ## Reading and writing go through different doors
 
 Measured with `cwa doctor`: once authentication is done, listing, searching and
