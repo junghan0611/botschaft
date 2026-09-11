@@ -20,10 +20,11 @@ Current position: 1–3 complete → 4 daily-use reading ← CURRENT → 5 write
 - **Blocker:** none for reading. Write is parked on purpose: browserless hits Sentinel; browser-owned preflight 404s `CANONICAL_READ_NOT_VISIBLE` while `cwa messages` works. Same 404 on pin and fork.
 - **Verify:** `./run.sh doctor` reports pin `e7f041a`; `./run.sh smoke` passes; `./run.sh test` clean; Emacs commands still open a live conversation.
 - **Read:** `README.md`, `AGENTS.md`, `docs/chatgpt-protocol.md`, issue **#6** (write parking), **#5** (packaging).
-- **Do not touch:** no live `cwa send`; no soak-fork pin; no kymuco PR; no new ChatGPT conversation; no `snapshot`/`export`/cache; no fourth `cwaq` verb; no Emacs write.
+- **Do not touch:** no live `cwa send`; no soak-fork pin; no kymuco PR; no new ChatGPT conversation; no `snapshot`/`export`/cache; no fourth `cwaq` verb; no Emacs write; no ChatGPT-web Andenken axis or background conversation sync — use the server search.
 
 # RECENT
 
+- **2026-09-11:** Keep recall server-side: `cwaq search` already pages ChatGPT's live search for the TUI and Emacs. The proposed Andenken derivative axis and async local corpus sync are rejected; no local conversation projection.
 - **2026-09-11:** Forced login repaired reads. First send died on `--profile` (exit 2). Soak fork omitted profile and forwarded attached model; browserless then died on Sentinel (exit 3, no mutation).
 - Browser-native host + Edge extension connected. `browser-owned` send preflight 404 on three conversations; `messages` ok. Fork did not cause it (`e7f041a` and `4374dcc` same 404).
 - Writes continue in the ChatGPT web UI via conversation URL. Issue **#6** holds the write investigation.

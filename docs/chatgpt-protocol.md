@@ -1,20 +1,20 @@
 # The ChatGPT web backend — measured server behaviour
 
-Measured against one account on 2026-09-10. **This document is this repository's
-real contribution**: none of the five below is documented anywhere, each has to
-be found by running into it, and other teams have missed them too.
+Measured against one account beginning on 2026-09-10. **This document is this
+repository's real contribution**: none of the six below is documented anywhere,
+each has to be found by running into it, and other teams have missed them too.
 
 ## Endpoints
 
 ```
-GET /backend-api/conversations?offset&limit&order=updated        every conversation
+GET /backend-api/conversations?offset&limit&order=updated        non-project conversations
 GET /backend-api/conversations/search?query=[&gizmo_id=]          search
 GET /backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo&limit   the project list
 GET /backend-api/gizmos/<gizmo_id>/conversations?limit&cursor     one project's conversations
 GET /backend-api/conversation/<id>                                one conversation (used by `cwa messages`)
 ```
 
-## The five traps
+## The six traps
 
 ### 1. The global list contains no project conversations at all
 
@@ -72,6 +72,27 @@ one axis, and **keep the offset in the string.**
 Titles also arrive with **trailing newlines and unassigned code points**
 (measured: `"…\U0005FFFF\n"`). One newline pushed the list render down a row and
 scrolled the header off screen. **Never assume a server string is one line.**
+
+### 6. Search is lexical token-AND, not semantic retrieval
+
+Measured on 2026-09-11 at 14:33:56 KST by paging the search cursor to its end.
+The response carries a conversation id, title, timestamp and matching snippet;
+it exposes no score, embedding or vector.
+
+| Query | Results | Observation |
+|---|---:|---|
+| `Emacs` / `emacs` | 67 / 67 | case-insensitive |
+| `Emcas` | 0 | no typo or fuzzy recovery |
+| `semantic search` | 27 | both tokens occurred in all 27 snippets; only 11 contained the phrase |
+| `org-mode` / `org mode` | 61 / 61 | the hyphen is a token separator |
+| `"의미 검색"` / `의미 검색` | 71 / 71 | quotes do not force phrase matching |
+
+The route is therefore useful for reopening a conversation when some of its
+words are known, which is the normal web-app retrieval path. It is not a semantic
+memory surface and it is not a corpus enumerator: at 14:34 KST an empty query
+returned 325 conversations while the fully paged global-plus-project inventory
+contained 333. Keep paging and route selection in the contract layer; do not
+replace this live search with a local conversation index.
 
 ## Reproduction — measured again from the Emacs front end (2026-09-10, 17:2x KST)
 

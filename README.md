@@ -76,7 +76,7 @@ before. Fixing the boundary before using it is how the three above failed.
 | `tui/` | Go + bubbletea. Projects, search, list and read are live-tested; compose, stream and canonical readback are implemented pending one controlled live turn |
 | `bin/cwaq` | The query shim both front ends share |
 | `run.sh` | Setup, build, check and run — the same on x86-64 and aarch64 |
-| `docs/chatgpt-protocol.md` | Measured server behaviour — five traps |
+| `docs/chatgpt-protocol.md` | Measured server behaviour — six traps |
 
 Reading requires no browser. The TUI sends existing-conversation text through
 CWA's experimental `browserless-request` transport. Its readiness sentinel reports
