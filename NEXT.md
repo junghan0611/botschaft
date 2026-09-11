@@ -14,9 +14,9 @@ Current position: 1–3 complete → 4 implemented and awaiting live authenticat
 
 # NOW
 
-- **Current:** The TUI compose/stream/readback loop is implemented and reviewed. No real account write has been made.
-- **Next:** (1) run `./run.sh login` → (2) require `./run.sh smoke` to pass → (3) obtain one owner-designated existing conversation ID and exact prompt → (4) send once and inspect canonical readback → (5) record profile and web-search behavior in `docs/chatgpt-protocol.md`.
-- **Blocker:** At 09:39 KST on 2026-09-11, both query routes returned HTTP 401 `token_expired` despite a future reported expiry; `cwa auth refresh` returned 200 but did not repair the reads.
+- **Current:** Auth and smoke passed. The first live send exited 2 because `cwa send` injects `--profile` and `browserless-request` rejects it.
+- **Next:** Use the forked adapter (`cli/optional-send-profile`, omit `--profile` by default) for continuation. One owner-designated send, then canonical readback. Record whether the previous web model is actually kept. No upstream PR for two weeks; the soak history goes in that PR.
+- **Blocker:** None for login. Remaining: prove one continuation on the fork, then soak.
 - **Verify:** smoke passes; the canonical history contains the submitted user turn and a later assistant turn; no duplicate send occurs; `web_search` and profile behavior are recorded with query and time.
 - **Read:** `README.md` for the surface, `AGENTS.md` for house rules, `docs/chatgpt-protocol.md` for measured traps, and issue **#2** for RAIL 4.
 - **Do not touch:** no send before the owner names the conversation and prompt; no new-conversation path; no Emacs write work; no `snapshot`, `export`, cache, or fourth `cwaq` verb.

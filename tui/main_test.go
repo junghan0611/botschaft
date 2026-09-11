@@ -391,7 +391,7 @@ func TestDryRunDoesNotExecuteAndUsesExactArgv(t *testing.T) {
 		t.Fatal("dry-run returned a command; it must not execute anything")
 	}
 	wantArgv := []string{"send", "--conversation", "fixture",
-		"--transport", "browserless-request", "--profile", "HIGH", "--stream",
+		"--transport", "browserless-request", "--stream",
 		"--auth-file", "fixture-auth", "--", "line one\nit's line two"}
 	if got := m.cfg.sendArgv(m.compose.Value(), m.cur.ID); !reflect.DeepEqual(got, wantArgv) {
 		t.Fatalf("send argv mismatch:\n got %#v\nwant %#v", got, wantArgv)
@@ -439,7 +439,7 @@ func TestSendArgvProtectsDashPrefixedDraft(t *testing.T) {
 	cfg := config{cwaBin: "fake-cwa", authFile: "fixture-auth"}
 	got := cfg.sendArgv("-hello", "fixture")
 	want := []string{"send", "--conversation", "fixture",
-		"--transport", "browserless-request", "--profile", "HIGH", "--stream",
+		"--transport", "browserless-request", "--stream",
 		"--auth-file", "fixture-auth", "--", "-hello"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("dash-prefixed draft is not protected from option parsing:\n got %#v\nwant %#v", got, want)

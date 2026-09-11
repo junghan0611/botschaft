@@ -290,8 +290,10 @@ func (c config) sendArgv(text, id string) []string {
 	// Put every option before `--` and the positional text after it. If text is
 	// placed directly after `send`, an argparse prefix such as `-hello` is read
 	// as `-h`, prints help, and exits 0 without sending anything.
+	// Do not pass `--profile`: on browserless-request an explicit profile is
+	// rejected before any write. Omitting it leaves the transport's model unset.
 	return []string{"send", "--conversation", id,
-		"--transport", "browserless-request", "--profile", "HIGH", "--stream",
+		"--transport", "browserless-request", "--stream",
 		"--auth-file", c.authFile, "--", text}
 }
 

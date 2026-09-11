@@ -174,7 +174,7 @@ transports do not carry the same capabilities:
 | `text_turns` · `continuation` · `streaming` · `new_chat` | AVAILABLE | AVAILABLE |
 | `canonical_readback` · `conversation_attach` · `conversation_read` | AVAILABLE | AVAILABLE |
 | `web_search` | AVAILABLE | **UNKNOWN** |
-| `model_selection` · `reasoning_selection` | AVAILABLE | **UNKNOWN** |
+| `model_selection` · `reasoning_selection` | AVAILABLE | **UNAVAILABLE** (fail-closed; measured 2026-09-11) |
 | `files` | AVAILABLE | UNKNOWN |
 | `images` · `multimodal_continuation` | AVAILABLE | **UNIMPLEMENTED** |
 | `temporary_chat` | AVAILABLE | UNKNOWN |
@@ -187,6 +187,29 @@ means unmeasured, not absent** — it can only be settled by sending one turn.
 **Order matters when starting on writes:** CWA upstream #79 (open) promotes a
 **new** conversation's id to `WEB:<uuid>`, which the canonical read then rejects.
 **Continue an existing conversation first, create new ones later.**
+
+### `--profile` is rejected on `browserless-request` before any write (2026-09-11, 10:51 KST)
+
+One owner-designated continuation was attempted through public `cwa send` with
+the TUI's argv: `--transport browserless-request --profile HIGH --stream`,
+existing conversation, text after `--`. No conversation identifier or body is
+recorded here.
+
+The process printed `error: model profile selection is unavailable for the
+selected write transport` and exited **2**. That is CWA usage, not an ambiguous
+write: `_model_profile_override_kwargs` in the pinned adapter raises `ValueError`
+when `model_profile` is not `None` and the transport does not set
+`model_profile_product_runtime_selection_supported`. Browserless does not.
+
+The public CLI on pin `e7f041a` always supplies a profile (explicit `HIGH`, or
+the argparse default `DEEP` which maps to the same native profile). Omitting
+`--profile` still failed on that pin. No turn was submitted. `web_search` on
+browserless remains UNKNOWN.
+
+A working fork now makes `--profile` optional (`model_profile=None` when omitted).
+The TUI no longer passes `--profile`. That does not prove the previous web-app
+model is preserved; it only unblocks continuation. Soak that fork locally; do
+not open an upstream PR until the soak has a dated history.
 
 ## What a conversation actually weighs
 
