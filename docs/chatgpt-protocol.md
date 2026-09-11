@@ -207,9 +207,15 @@ the argparse default `DEEP` which maps to the same native profile). Omitting
 browserless remains UNKNOWN.
 
 A working fork now makes `--profile` optional (`model_profile=None` when omitted).
-The TUI no longer passes `--profile`. That does not prove the previous web-app
-model is preserved; it only unblocks continuation. Soak that fork locally; do
-not open an upstream PR until the soak has a dated history.
+The TUI no longer passes `--profile`. Browserless continuation now also forwards
+the canonical attached `detected_model` instead of `gpt-5-3-mini`.
+
+A second send on 2026-09-11 at 11:07 KST, same existing conversation, no
+`--profile`, exited **3** with `BROWSERLESS_CHALLENGE_BOUNDARY` (proofofwork, so,
+turnstile). Canonical read afterwards did not contain the submitted probe text.
+The profile gate is gone; the write still stops before mutation when Sentinel
+requires challenge evidence. `web_search` remains UNKNOWN. Soak that fork
+locally; do not open an upstream PR until the soak has a dated history.
 
 ## What a conversation actually weighs
 

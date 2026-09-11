@@ -29,7 +29,7 @@ AUTH_FILE="${CWA_AUTH:-$STATE_DIR/auth_data.json}"
 # which upstream they measured against; see docs/chatgpt-protocol.md.
 # Soak fork of CWA: optional --profile. Do not PR upstream until two weeks of use.
 CWA_REPO="https://github.com/junghan0611/chatgpt-web-adapter.git"
-CWA_COMMIT="2383241"
+CWA_COMMIT="4374dcc"
 CWA_HOME="$DATA_DIR/cwa"
 
 # Helper functions
