@@ -2,36 +2,37 @@
 
 The issue tracker owns the roadmap; this file names the next executable move.
 
-# RAIL — current position
+# RAIL — 현재 좌표
 
 - [x] **1. Read contract and query shim** — projects, list, search, canonical read
-- [x] **2. TUI reading surface** — navigation, overview, folding, find and copy
-- [x] **3. Emacs read surface** — projects, search, list and conversation buffers
-- [ ] **4. Existing-conversation continuation** ← CURRENT: repair auth, then run one controlled live turn
-- [ ] **5. New conversations and Claude backend** ← PAUSED: continuation evidence comes first
+- [x] **2. TUI reading core** — navigation, overview, folding, find and copy
+- [x] **3. Emacs read commands** — projects, search, list and conversation buffers
+- [ ] **4. TUI daily-use polish and Emacs packaging** ← CURRENT: reading is the stem again
+- [ ] **5. Continuation write (#2)** ← PAUSED: open the ChatGPT URL in the browser; no live send
+- [ ] **6. New conversations and Claude backend (#3)** ← PAUSED: write evidence first
 
-Current position: 1–3 complete → 4 implemented and awaiting live authentication → 5 paused.
+Current position: 1–3 complete → 4 daily-use reading ← CURRENT → 5 write paused → 6 paused.
 
 # NOW
 
-- **Current:** Auth and smoke passed. The first live send exited 2 because `cwa send` injects `--profile` and `browserless-request` rejects it.
-- **Next:** Use the forked adapter (`cli/optional-send-profile`, omit `--profile` by default) for continuation. One owner-designated send, then canonical readback. Record whether the previous web model is actually kept. No upstream PR for two weeks; the soak history goes in that PR.
-- **Blocker:** None for login. Remaining: prove one continuation on the fork, then soak.
-- **Verify:** smoke passes; the canonical history contains the submitted user turn and a later assistant turn; no duplicate send occurs; `web_search` and profile behavior are recorded with query and time.
-- **Read:** `README.md` for the surface, `AGENTS.md` for house rules, `docs/chatgpt-protocol.md` for measured traps, and issue **#2** for RAIL 4.
-- **Do not touch:** no send before the owner names the conversation and prompt; no new-conversation path; no Emacs write work; no `snapshot`, `export`, cache, or fourth `cwaq` verb.
+- **Current:** Adapter pin is upstream `e7f041a` again. Do not run the soak fork as the live adapter. Compose/send code may stay in the TUI; do not use it.
+- **Next:** (1) remaining TUI reading quality that still needs a seated terminal — long conversations, fence-heavy threads, `Y` clipboard. (2) Emacs package discovery so `lisp/` works as an installed package, not only from a checkout (issue **#5**).
+- **Blocker:** none for reading. Write is parked on purpose: browserless hits Sentinel; browser-owned preflight 404s `CANONICAL_READ_NOT_VISIBLE` while `cwa messages` works. Same 404 on pin and fork.
+- **Verify:** `./run.sh doctor` reports pin `e7f041a`; `./run.sh smoke` passes; `./run.sh test` clean; Emacs commands still open a live conversation.
+- **Read:** `README.md`, `AGENTS.md`, `docs/chatgpt-protocol.md`, issue **#6** (write parking), **#5** (packaging).
+- **Do not touch:** no live `cwa send`; no soak-fork pin; no kymuco PR; no new ChatGPT conversation; no `snapshot`/`export`/cache; no fourth `cwaq` verb; no Emacs write.
 
 # RECENT
 
-- **2026-09-11:** Added existing-conversation compose, exact dry-run argv, streaming, cancellation, canonical readback and in-memory draft/receipt handling.
-- The review loop closed dash-prefixed argv false success, stale exit-0 reconciliation, canonical whitespace normalization, editor tempfile privacy/cleanup, pipe cleanup, and documentation overstatement.
-- Automated verification passes: `./run.sh test`, `go test -race ./...`, `go test -count=100 ./...`, `git diff --check`, and `bash -n run.sh`.
-- Auth metadata proved weaker than a live read: `./run.sh smoke` now reports the real error and explicit login uses CWA `--force`.
+- **2026-09-11:** Forced login repaired reads. First send died on `--profile` (exit 2). Soak fork omitted profile and forwarded attached model; browserless then died on Sentinel (exit 3, no mutation).
+- Browser-native host + Edge extension connected. `browser-owned` send preflight 404 on three conversations; `messages` ok. Fork did not cause it (`e7f041a` and `4374dcc` same 404).
+- Writes continue in the ChatGPT web UI via conversation URL. Issue **#6** holds the write investigation.
 
 # LEDGER
 
-- **#2** — current write path and first controlled continuation.
-- **#3** — Claude backend, only after the ChatGPT continuation is useful in daily use.
-- **#4** — delete `cwaq` verbs when upstream publishes equivalent list/search/project commands.
-- **#5** — package discovery; the current relative shim lookup works from a checkout, not an installed package.
-- Queries remain synchronous and conversation Markdown remains raw text; neither blocks the current rail.
+- **#6** — write-path investigation (profile, model slug, Sentinel, credential planes). Parked.
+- **#2** — TUI continuation implementation; live turn postponed.
+- **#5** — package discovery / installed Emacs package.
+- **#3** — Claude backend, after ChatGPT continuation is useful.
+- **#4** — delete `cwaq` when upstream grows list/search/projects.
+- Soak fork `junghan0611/chatgpt-web-adapter` `cli/optional-send-profile` stays for a possible kymuco PR ~2026-09-25; it is not the live pin.

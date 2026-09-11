@@ -27,9 +27,8 @@ AUTH_FILE="${CWA_AUTH:-$STATE_DIR/auth_data.json}"
 
 # The ChatGPT backend, pinned. Two hosts on two architectures have to agree on
 # which upstream they measured against; see docs/chatgpt-protocol.md.
-# Soak fork of CWA: optional --profile. Do not PR upstream until two weeks of use.
-CWA_REPO="https://github.com/junghan0611/chatgpt-web-adapter.git"
-CWA_COMMIT="4374dcc"
+CWA_REPO="https://github.com/kymuco/chatgpt-web-adapter.git"
+CWA_COMMIT="e7f041a"
 CWA_HOME="$DATA_DIR/cwa"
 
 # Helper functions
