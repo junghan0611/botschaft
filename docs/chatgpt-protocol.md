@@ -124,6 +124,23 @@ condition, it saves only one browser interaction, and the failure it invites is
 one that logs *you* out while the tool keeps working — so you find out from the
 browser, not from the tool.
 
+## A future expiry timestamp is not proof that the token is accepted (2026-09-11)
+
+A fresh login attempt updated the host-local auth file at 09:35 KST. At 09:39,
+`cwa auth status` and `cwa doctor` both reported the access token as present and
+valid until 2026-09-20. The live query `cwaq projects --limit 1` nevertheless
+returned HTTP 401 with `token_expired`; `cwaq list --limit 3` returned the same.
+
+At 09:41, `cwa auth refresh` returned status 200, rotated the session token and
+persisted the file. Repeating `cwaq projects --limit 1` still returned the same
+401. The access-token checksum had not changed. No conversation write was made
+in any of these checks.
+
+Therefore local expiry parsing is only metadata validation, not an acceptance
+probe. After login, use `./run.sh smoke` to prove that the live read routes answer.
+The explicit `./run.sh login` command uses CWA's `--force` option so it cannot
+silently recapture the saved browser session that produced the rejected token.
+
 ## Reading and writing go through different doors
 
 Measured with `cwa doctor`: once authentication is done, listing, searching and

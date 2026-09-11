@@ -1,6 +1,11 @@
 # botschaft
 
-**Read the conversations that live outside your harness, from your own seat.**
+> [!WARNING]
+> **Under construction.** Read paths are usable, but the continuation path has
+> not completed its first controlled live-account turn. Expect sharp edges and
+> do not treat this repository as a released client yet.
+
+**Read and continue the conversations that live outside your harness, from your own seat.**
 
 `Botschaft` is German for both **message** and **embassy**. This repository needs
 both senses: the ChatGPT web app is not a harness you run, and the conversations
@@ -9,7 +14,7 @@ conversations. It opens a window onto them.
 
 ## What it is, and what it is not
 
-Find, pick, read — and later continue — on top of a logged-in ChatGPT web session.
+Find, pick, read, and continue on top of a logged-in ChatGPT web session.
 The server is always canonical. No conversation store is kept locally.
 
 - **Not** a reimplementation of ChatGPT inside Emacs
@@ -46,7 +51,7 @@ projects   list the projects
 list       list conversations (globally, or within one project)
 search     server-side search (globally, or scoped to one project)
 read       every turn of one conversation
-send       continue / start a conversation     <- once the write path is wired
+send       continue an existing conversation
 ```
 
 ```
@@ -67,14 +72,16 @@ before. Fixing the boundary before using it is how the three above failed.
 
 | | |
 |---|---|
-| `lisp/` | **The main line.** `botschaft.el` — three read-only commands, working |
-| `tui/` | Go + bubbletea. List, projects, search, read — working |
-| `bin/cwaq` | The query shim both front ends share (Python) |
+| `lisp/` | Read-only Emacs package: projects, search, list, read |
+| `tui/` | Go + bubbletea. Projects, search, list and read are live-tested; compose, stream and canonical readback are implemented pending one controlled live turn |
+| `bin/cwaq` | The query shim both front ends share |
 | `run.sh` | Setup, build, check and run — the same on x86-64 and aarch64 |
 | `docs/chatgpt-protocol.md` | Measured server behaviour — five traps |
 
-Reading runs **without a browser** (system `curl`). Only writing needs a
-logged-in Chrome.
+Reading requires no browser. The TUI sends existing-conversation text through
+CWA's experimental `browserless-request` transport. Its readiness sentinel reports
+ready without Chrome while full preflight remains pending; web-search behavior is
+unmeasured. Browser-owned features still require a logged-in Chrome and extension.
 
 ## Quick start
 
@@ -108,8 +115,9 @@ adapter's interpreter explicitly — do not execute the shim bare:
 CWA_PY=/path/to/venv/bin/python
 CWA_BIN=/path/to/venv/bin/cwa
 mkdir -p ~/.local/state/botschaft && chmod 700 ~/.local/state/botschaft
-"$CWA_BIN" auth login --auth-file ~/.local/state/botschaft/auth_data.json
+"$CWA_BIN" auth login --force --auth-file ~/.local/state/botschaft/auth_data.json
 chmod 600 ~/.local/state/botschaft/auth_data.json
+./run.sh smoke  # expiry metadata alone does not prove server acceptance
 
 "$CWA_PY" bin/cwaq projects
 "$CWA_PY" bin/cwaq list --limit 50
@@ -155,9 +163,21 @@ In a conversation buffer (`special-mode`): `t` toggles tool turns, `g` re-reads,
 |---|---|
 | List | `p` projects · `/` search · `enter` open · `j/k` move · `g/G` first/last · `y` URL · `o` browser · `r` reload · `q` quit |
 | Projects | `j/k` move · `enter` select · `esc` back · `q` quit |
-| Reading | scroll · `n/p` next/previous turn · `v` overview · `e` expand/fold · `/` find · `]/[` next/previous hit · `Y` copy turn · `g/G` first/last turn · `t` tool turns · `y` URL · `o` browser · `r` reload · `esc` back · `q` quit |
+| Reading | `c` compose · scroll · `n/p` next/previous turn · `v` overview · `e` expand/fold · `/` find · `]/[` next/previous hit · `Y` copy turn · `g/G` first/last turn · `t` tool turns · `y` URL · `o` browser · `r` reload · `esc` back · `q` quit |
+| Composing | multi-line input · `ctrl+e` `$EDITOR` · `ctrl+d` exact dry run · `ctrl+s` send · `ctrl+c` cancel in flight / quit when idle / stay put when unresolved · `esc` preserve draft and return |
 
 ## Warning
 
 CWA is an unofficial adapter. The risk to your account is not zero. This
 repository stands on it and inherits that risk — including while it only reads.
+
+The `$EDITOR` handoff uses a mode `0600` plaintext temporary file in the private
+XDG runtime directory when one is available, falling back to the system temporary
+directory, and removes it when the editor callback completes. `$EDITOR` must remain
+in the foreground until the file is saved and closed (for example, do not add
+`emacsclient --no-wait`). An uncatchable `SIGKILL` can prevent cleanup and leave
+the draft there.
+
+Send receipts also exist only in memory. If the TUI itself is killed during an
+uncertain send, restart it and read the canonical server history before sending
+that draft again; the restarted process cannot know the lost receipt.

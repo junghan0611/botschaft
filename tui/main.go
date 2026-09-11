@@ -1,30 +1,33 @@
-// botschaft/tui — a thin terminal viewer over an existing ChatGPT web session.
+// botschaft/tui — a thin terminal client over an existing ChatGPT web session.
 //
-// This program is the VERIFICATION HARNESS for the Emacs package that is the real
-// deliverable. Both front ends call the same four verbs, so a server trap found
-// here does not have to be found again there.
+// It owns no conversation data. Lists, searches, canonical message reads, and
+// continuation writes all cross a process boundary; only unsent drafts and
+// transient send receipts live in memory.
 //
-// It owns NO data. Every screen is a live read through chatgpt-web-adapter (CWA);
-// nothing is cached to disk. Two process boundaries, deliberately different:
+//	read   → `cwa messages <id> --json`
+//	send   → `cwa send <text> --conversation <id> ... --stream`
+//	list   → `cwaq list`
+//	search → `cwaq search <q>`
 //
-//	read   → `cwa messages <id> --json`   PUBLIC, schema-versioned CLI
-//	list   → `cwaq list`                  private shim: upstream exposes no verb
-//	search → `cwaq search <q>`            private shim: upstream exposes no verb
-//
-// The split is the point. When upstream grows `cwa list` / `cwa search`, delete
-// cwaq and change two strings here.
+// When upstream grows public list/search verbs, delete cwaq and change the two
+// corresponding command constructions here.
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -151,11 +154,41 @@ type projectsMsg struct {
 }
 
 type turnsMsg struct {
-	gen   int
-	id    string
-	title string
-	turns []turn
-	err   error
+	gen       int
+	id        string
+	title     string
+	turns     []turn
+	afterSend bool
+	err       error
+}
+
+type sendEvent struct {
+	stdout string
+	stderr string
+	done   bool
+	err    error
+}
+
+type sendStartedMsg struct {
+	gen, seq int
+	id       string
+	events   <-chan sendEvent
+	cancel   context.CancelFunc
+	err      error
+}
+
+type sendEventMsg struct {
+	gen, seq int
+	id       string
+	events   <-chan sendEvent
+	event    sendEvent
+}
+
+type editorDoneMsg struct {
+	gen, seq int
+	id       string
+	text     string
+	err      error
 }
 
 type tickMsg time.Time
@@ -233,18 +266,196 @@ func (c config) fetchProjects(gen int) tea.Cmd {
 	}
 }
 
-func (c config) fetchTurns(gen int, id, title string) tea.Cmd {
+func (c config) messagesArgv(id string) []string {
+	return []string{"messages", id, "--json", "--auth-file", c.authFile, "--limit", "1000"}
+}
+
+func (c config) fetchTurns(gen int, id, title string, afterSend bool) tea.Cmd {
 	return func() tea.Msg {
 		var env messagesEnvelope
-		if err := runJSON(c.cwaBin, []string{"messages", id, "--json",
-			"--auth-file", c.authFile, "--limit", "1000"}, &env); err != nil {
-			return turnsMsg{gen: gen, id: id, err: err}
+		if err := runJSON(c.cwaBin, c.messagesArgv(id), &env); err != nil {
+			return turnsMsg{gen: gen, id: id, afterSend: afterSend, err: err}
 		}
-		if !env.OK {
-			return turnsMsg{gen: gen, id: id, err: fmt.Errorf("read failed (schema=%d)", env.Schema)}
+		if !env.OK || env.Schema != 1 || env.ConversationID != id {
+			return turnsMsg{gen: gen, id: id, afterSend: afterSend,
+				err: fmt.Errorf("invalid canonical read (ok=%t schema=%d conversation=%q)",
+					env.OK, env.Schema, env.ConversationID)}
 		}
-		return turnsMsg{gen: gen, id: id, title: title, turns: env.Messages}
+		return turnsMsg{gen: gen, id: id, title: title, turns: env.Messages,
+			afterSend: afterSend}
 	}
+}
+
+func (c config) sendArgv(text, id string) []string {
+	// Put every option before `--` and the positional text after it. If text is
+	// placed directly after `send`, an argparse prefix such as `-hello` is read
+	// as `-h`, prints help, and exits 0 without sending anything.
+	return []string{"send", "--conversation", id,
+		"--transport", "browserless-request", "--profile", "HIGH", "--stream",
+		"--auth-file", c.authFile, "--", text}
+}
+
+func (c config) startSend(gen, seq int, id, text string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithCancel(context.Background())
+		cmd := exec.CommandContext(ctx, c.cwaBin, c.sendArgv(text, id)...)
+		cmd.Env = os.Environ()
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			cancel()
+			return sendStartedMsg{gen: gen, seq: seq, id: id,
+				err: fmt.Errorf("start %s: %w", filepath.Base(c.cwaBin), err)}
+		}
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			cancel()
+			closeErr := stdout.Close()
+			return sendStartedMsg{gen: gen, seq: seq, id: id,
+				err: fmt.Errorf("start %s: %w", filepath.Base(c.cwaBin), errors.Join(err, closeErr))}
+		}
+		if err := cmd.Start(); err != nil {
+			cancel()
+			closeErr := errors.Join(stdout.Close(), stderr.Close())
+			return sendStartedMsg{gen: gen, seq: seq, id: id,
+				err: fmt.Errorf("start %s: %w", filepath.Base(c.cwaBin), errors.Join(err, closeErr))}
+		}
+
+		events := make(chan sendEvent, 16)
+		var readers sync.WaitGroup
+		readers.Add(2)
+		go copySendStream(stdout, true, events, &readers)
+		go copySendStream(stderr, false, events, &readers)
+		go func() {
+			readers.Wait()
+			err := cmd.Wait()
+			events <- sendEvent{done: true, err: err}
+			close(events)
+			cancel()
+		}()
+		return sendStartedMsg{gen: gen, seq: seq, id: id, events: events, cancel: cancel}
+	}
+}
+
+func copySendStream(r io.Reader, stdout bool, events chan<- sendEvent, wg *sync.WaitGroup) {
+	defer wg.Done()
+	buf := make([]byte, 4096)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			event := sendEvent{}
+			if stdout {
+				event.stdout = string(buf[:n])
+			} else {
+				event.stderr = string(buf[:n])
+			}
+			events <- event
+		}
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				stream := "stderr"
+				if stdout {
+					stream = "stdout"
+				}
+				events <- sendEvent{err: fmt.Errorf("read %s stream: %w", stream, err)}
+			}
+			return
+		}
+	}
+}
+
+func waitSendEvent(gen, seq int, id string, events <-chan sendEvent) tea.Cmd {
+	return func() tea.Msg {
+		event, ok := <-events
+		if !ok {
+			event = sendEvent{done: true}
+		}
+		return sendEventMsg{gen: gen, seq: seq, id: id, events: events, event: event}
+	}
+}
+
+func drainSendEvents(events <-chan sendEvent) tea.Cmd {
+	return func() tea.Msg {
+		for range events {
+		}
+		return nil
+	}
+}
+
+func sendOutcomeAmbiguous(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) &&
+		(exitErr.ExitCode() == 4 || exitErr.ExitCode() < 0)
+}
+
+func shellQuote(s string) string {
+	if s != "" && strings.IndexFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' ||
+			r >= '0' && r <= '9' || strings.ContainsRune("_@%+=:,./-", r))
+	}) == -1 {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+func shellCommand(name string, args []string) string {
+	words := make([]string, 1, len(args)+1)
+	words[0] = name
+	words = append(words, args...)
+	for i := range words {
+		words[i] = shellQuote(words[i])
+	}
+	return strings.Join(words, " ")
+}
+
+func editorTempDir() string {
+	dir := os.Getenv("XDG_RUNTIME_DIR")
+	if dir == "" {
+		return ""
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+		return ""
+	}
+	return dir
+}
+
+func createEditorDraft(draft string) (string, error) {
+	f, err := os.CreateTemp(editorTempDir(), "cwatui-draft-*.txt")
+	if err != nil {
+		return "", fmt.Errorf("create editor draft: %w", err)
+	}
+	path := f.Name()
+	if _, err := f.WriteString(draft); err != nil {
+		cleanupErr := errors.Join(f.Close(), os.Remove(path))
+		return "", fmt.Errorf("write editor draft: %w", errors.Join(err, cleanupErr))
+	}
+	if err := f.Close(); err != nil {
+		removeErr := os.Remove(path)
+		return "", fmt.Errorf("close editor draft: %w", errors.Join(err, removeErr))
+	}
+	return path, nil
+}
+
+func consumeEditorDraft(path string) ([]byte, error) {
+	text, readErr := os.ReadFile(path)
+	removeErr := os.Remove(path)
+	return text, errors.Join(readErr, removeErr)
+}
+
+func startEditor(editor, draft string, gen, seq int, id string) (tea.Cmd, error) {
+	path, err := createEditorDraft(draft)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(editor) == "" {
+		editor = "vi"
+	}
+	cmd := exec.Command("sh", "-c", editor+` "$1"`, "cwatui-editor", path)
+	return tea.ExecProcess(cmd, func(execErr error) tea.Msg {
+		text, consumeErr := consumeEditorDraft(path)
+		return editorDoneMsg{gen: gen, seq: seq, id: id, text: string(text),
+			err: errors.Join(execErr, consumeErr)}
+	}), nil
 }
 
 // ── conversation address ─────────────────────────────────────────────────────
@@ -305,7 +516,23 @@ const (
 	screenSearch
 	screenRead
 	screenProjects
+	screenCompose
 )
+
+type sendReceiptKind int
+
+const (
+	receiptInFlight sendReceiptKind = iota + 1
+	receiptNeedsReadback
+	receiptAmbiguous
+)
+
+type sendReceipt struct {
+	kind      sendReceiptKind
+	submitted string
+	boundary  int
+	seq       int
+}
 
 type model struct {
 	cfg    config
@@ -323,7 +550,8 @@ type model struct {
 	scopeID   string
 	scopeName string
 
-	input textinput.Model
+	input   textinput.Model
+	compose textarea.Model
 
 	vp        viewport.Model
 	vpReady   bool
@@ -342,6 +570,21 @@ type model struct {
 	findHits   []int // indices into turns
 	findAt     int
 
+	drafts   map[string]string
+	receipts map[string]sendReceipt
+
+	sendSeq         int
+	editSeq         int
+	sending         bool
+	readback        bool
+	streamID        string
+	streamOut       string
+	streamErr       string
+	streamFailure   error
+	dryRun          string
+	sendCancel      context.CancelFunc
+	cancelRequested bool
+
 	gen     int // generation of the request currently owning the screen
 	loading bool
 	spin    int
@@ -355,8 +598,13 @@ func newModel(cfg config) model {
 	in := textinput.New()
 	in.Placeholder = "search — enter to run, esc to cancel"
 	in.CharLimit = 200
-	return model{cfg: cfg, screen: screenList, input: in, loading: true,
-		expanded: map[int]bool{}, status: "loading recent conversations"}
+	compose := textarea.New()
+	compose.Placeholder = "Write a reply…"
+	compose.CharLimit = 0
+	compose.ShowLineNumbers = false
+	return model{cfg: cfg, screen: screenList, input: in, compose: compose, loading: true,
+		expanded: map[int]bool{}, drafts: map[string]string{},
+		receipts: map[string]sendReceipt{}, status: "loading recent conversations"}
 }
 
 func (m model) Init() tea.Cmd {
@@ -399,6 +647,103 @@ func (m *model) clampScroll() {
 	}
 }
 
+func (m *model) resizeCompose() {
+	width := m.w - 4
+	if width < 10 {
+		width = 10
+	}
+	height := m.h - 4
+	if m.streamOut != "" || m.streamErr != "" || m.dryRun != "" {
+		height = (m.h - 5) / 2
+	}
+	if height < 3 {
+		height = 3
+	}
+	m.compose.SetWidth(width)
+	m.compose.SetHeight(height)
+}
+
+func (m *model) saveDraft() {
+	if m.cur.ID == "" {
+		return
+	}
+	if m.drafts == nil {
+		m.drafts = map[string]string{}
+	}
+	m.drafts[m.cur.ID] = m.compose.Value()
+}
+
+func (m *model) openCompose() tea.Cmd {
+	if m.drafts == nil {
+		m.drafts = map[string]string{}
+	}
+	if m.streamID != m.cur.ID {
+		m.streamOut, m.streamErr, m.streamFailure = "", "", nil
+	}
+	m.compose.SetValue(m.drafts[m.cur.ID])
+	m.resizeCompose()
+	m.screen = screenCompose
+	m.dryRun = ""
+	if m.sending || m.readback {
+		m.compose.Blur()
+		return nil
+	}
+	return m.compose.Focus()
+}
+
+func confirmsSubmittedTurn(receipt sendReceipt, turns []turn) bool {
+	if receipt.boundary < 0 || receipt.boundary > len(turns) {
+		return false
+	}
+	// Public `cwa messages` trims extracted message text. Compare in that
+	// canonical representation while retaining the exact submitted draft for
+	// display, retry safety, and conditional draft removal.
+	canonicalSubmitted := strings.TrimSpace(receipt.submitted)
+	matchedUser := false
+	for _, turn := range turns[receipt.boundary:] {
+		if isToolTurn(turn) {
+			continue
+		}
+		if !matchedUser && turn.Role == "user" && turn.Text == canonicalSubmitted {
+			matchedUser = true
+			continue
+		}
+		if matchedUser && turn.Role == "assistant" {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *model) acceptCanonicalReadback(turns []turn) bool {
+	receipt, ok := m.receipts[m.cur.ID]
+	if !ok {
+		return false
+	}
+	if !confirmsSubmittedTurn(receipt, turns) {
+		if receipt.kind == receiptAmbiguous {
+			m.err = errors.New("canonical history does not confirm the ambiguous send")
+		} else {
+			m.err = errors.New("canonical history does not confirm the completed send")
+		}
+		m.status = "draft and receipt preserved; resend remains disabled"
+		return false
+	}
+	delete(m.receipts, m.cur.ID)
+	if m.drafts[m.cur.ID] == receipt.submitted {
+		delete(m.drafts, m.cur.ID)
+		m.compose.SetValue("")
+	}
+	if receipt.kind == receiptAmbiguous {
+		m.status = "reconciled · submitted turn and assistant reply are canonical"
+	} else {
+		m.status = "sent · canonical readback"
+	}
+	m.streamID, m.streamOut, m.streamErr, m.dryRun = "", "", "", ""
+	m.streamFailure = nil
+	return true
+}
+
 func (m model) Update(raw tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := raw.(type) {
 
@@ -416,6 +761,8 @@ func (m model) Update(raw tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.screen == screenRead {
 			m.relayout()
+		} else if m.screen == screenCompose {
+			m.resizeCompose()
 		}
 		return m, nil
 
@@ -472,8 +819,21 @@ func (m model) Update(raw tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen != m.gen || msg.id != m.cur.ID {
 			return m, nil
 		}
-		m.loading = false
+		if !msg.afterSend && (m.sending || m.readback) {
+			return m, nil
+		}
+		if msg.afterSend {
+			if _, ok := m.receipts[msg.id]; !ok {
+				return m, nil
+			}
+		}
+		m.loading, m.readback = false, false
 		if msg.err != nil {
+			if msg.afterSend {
+				m.err = fmt.Errorf("send outcome preserved; canonical readback failed: %w", msg.err)
+				m.status = "press r to resync; send is disabled"
+				return m, nil
+			}
 			m.err, m.status = msg.err, ""
 			m.screen = screenList
 			return m, nil
@@ -484,14 +844,123 @@ func (m model) Update(raw tea.Msg) (tea.Model, tea.Cmd) {
 		m.expanded = map[int]bool{}
 		m.findHits, m.findAt, m.findQ = nil, 0, ""
 		m.finding = false
-		if !wasReading {
+		if msg.afterSend {
+			m.acceptCanonicalReadback(msg.turns)
+			m.overview = false
+			ids := m.activeIndices()
+			if len(ids) > 0 {
+				m.turnCursor = len(ids) - 1
+			} else {
+				m.turnCursor = 0
+			}
+		} else if !wasReading {
 			m.overview = false
 			m.turnCursor = 0
 		}
 		m.screen = screenRead
+		m.compose.Blur()
 		m.clampTurnCursor()
 		m.refreshRead()
 		return m, nil
+
+	case sendStartedMsg:
+		if msg.gen != m.gen || msg.id != m.cur.ID || msg.seq != m.sendSeq ||
+			!m.receiptMatches(msg.id, msg.seq) {
+			if msg.cancel != nil {
+				msg.cancel()
+			}
+			if msg.events != nil {
+				return m, drainSendEvents(msg.events)
+			}
+			return m, nil
+		}
+		if msg.err != nil {
+			m.sending, m.cancelRequested = false, false
+			delete(m.receipts, msg.id)
+			m.err = msg.err
+			m.status = "send did not start; draft preserved"
+			m.compose.Focus()
+			return m, nil
+		}
+		m.sendCancel = msg.cancel
+		if m.cancelRequested {
+			m.sendCancel()
+			m.status = "cancelling · outcome will require reconciliation"
+		} else {
+			m.status = "sending · assistant output is transient"
+		}
+		return m, waitSendEvent(msg.gen, msg.seq, msg.id, msg.events)
+
+	case sendEventMsg:
+		if msg.gen != m.gen || msg.id != m.cur.ID || msg.seq != m.sendSeq ||
+			!m.receiptMatches(msg.id, msg.seq) {
+			if !msg.event.done {
+				return m, drainSendEvents(msg.events)
+			}
+			return m, nil
+		}
+		m.streamOut += msg.event.stdout
+		m.streamErr += msg.event.stderr
+		if msg.event.err != nil && !msg.event.done {
+			m.streamFailure = msg.event.err
+		}
+		m.resizeCompose()
+		if !msg.event.done {
+			return m, waitSendEvent(msg.gen, msg.seq, msg.id, msg.events)
+		}
+		m.sending = false
+		m.sendCancel = nil
+		wasCancelled := m.cancelRequested
+		m.cancelRequested = false
+		sendErr := msg.event.err
+		if sendErr == nil {
+			sendErr = m.streamFailure
+		}
+		receipt := m.receipts[msg.id]
+		if sendErr != nil {
+			detail := strings.TrimSpace(m.streamErr)
+			if detail == "" {
+				detail = sendErr.Error()
+			}
+			if m.streamFailure != nil || wasCancelled || sendOutcomeAmbiguous(sendErr) {
+				receipt.kind = receiptAmbiguous
+				m.receipts[msg.id] = receipt
+				m.err = fmt.Errorf("send outcome ambiguous: %s", detail)
+				m.status = "draft preserved; press esc then r to reconcile before retry"
+			} else {
+				delete(m.receipts, msg.id)
+				m.err = fmt.Errorf("send failed: %s", detail)
+				m.status = "draft preserved; retry is manual"
+				m.compose.Focus()
+				return m, nil
+			}
+			return m, nil
+		}
+		receipt.kind = receiptNeedsReadback
+		m.receipts[msg.id] = receipt
+		m.readback, m.loading = true, true
+		m.status, m.err = "sent · loading canonical messages", nil
+		return m, tea.Batch(
+			m.cfg.fetchTurns(m.gen, m.cur.ID, m.cur.Title, true),
+			tick(),
+		)
+
+	case editorDoneMsg:
+		if msg.gen != m.gen || msg.id != m.cur.ID || msg.seq != m.editSeq ||
+			m.screen != screenCompose {
+			return m, nil
+		}
+		if msg.text != "" || msg.err == nil {
+			m.compose.SetValue(msg.text)
+			m.saveDraft()
+		}
+		if msg.err != nil {
+			m.err = fmt.Errorf("editor: %w", msg.err)
+			m.status = "editor failed; draft preserved"
+		} else {
+			m.err, m.status = nil, "draft updated from editor"
+		}
+		return m, m.compose.Focus()
 
 	case tea.KeyMsg:
 		switch m.screen {
@@ -519,6 +988,9 @@ func (m model) Update(raw tea.Msg) (tea.Model, tea.Cmd) {
 
 		case screenRead:
 			return m.updateRead(msg)
+
+		case screenCompose:
+			return m.updateCompose(msg)
 
 		case screenProjects:
 			switch msg.String() {
@@ -621,7 +1093,11 @@ func (m model) Update(raw tea.Msg) (tea.Model, tea.Cmd) {
 				m.cur = m.items[m.cursor]
 				m.loading, m.status, m.err = true, "reading: "+m.cur.Title, nil
 				m.gen++
-				return m, tea.Batch(m.cfg.fetchTurns(m.gen, m.cur.ID, m.cur.Title), tick())
+				_, afterSend := m.receipts[m.cur.ID]
+				return m, tea.Batch(
+					m.cfg.fetchTurns(m.gen, m.cur.ID, m.cur.Title, afterSend),
+					tick(),
+				)
 			}
 			return m, nil
 		}
@@ -861,9 +1337,134 @@ func (m *model) copyCurrentTurn() {
 	m.status, m.err = fmt.Sprintf("copied turn %d", m.turnCursor+1), nil
 }
 
+func (m *model) receiptMatches(id string, seq int) bool {
+	receipt, ok := m.receipts[id]
+	return ok && receipt.seq == seq
+}
+
+func (m *model) requestSendCancel() {
+	if !m.sending {
+		return
+	}
+	m.cancelRequested = true
+	if m.sendCancel != nil {
+		m.sendCancel()
+	}
+	m.status = "cancelling · outcome will require reconciliation"
+}
+
+func (m model) updateCompose(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.sending || m.readback {
+		switch msg.String() {
+		case "ctrl+c":
+			if m.sending {
+				m.requestSendCancel()
+			} else {
+				m.status = "canonical readback in progress; quit is disabled"
+			}
+		case "esc":
+			m.saveDraft()
+			m.compose.Blur()
+			m.screen = screenRead
+		default:
+			m.status = "draft locked while send/readback is in progress"
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "ctrl+c":
+		if _, unresolved := m.receipts[m.cur.ID]; unresolved {
+			m.status = "resend and quit disabled until canonical reconciliation"
+			return m, nil
+		}
+		return m, tea.Quit
+	case "esc":
+		m.saveDraft()
+		m.compose.Blur()
+		m.screen = screenRead
+		return m, nil
+	case "r":
+		if _, unresolved := m.receipts[m.cur.ID]; !unresolved {
+			break
+		}
+		m.loading, m.readback, m.err = true, true, nil
+		m.status = "reconciling previous send"
+		m.gen++
+		return m, tea.Batch(
+			m.cfg.fetchTurns(m.gen, m.cur.ID, m.cur.Title, true),
+			tick(),
+		)
+	case "ctrl+d":
+		m.saveDraft()
+		m.streamID = m.cur.ID
+		m.dryRun = shellCommand(m.cfg.cwaBin,
+			m.cfg.sendArgv(m.compose.Value(), m.cur.ID))
+		m.status, m.err = "dry run only · nothing sent", nil
+		m.resizeCompose()
+		return m, nil
+	case "ctrl+e":
+		m.saveDraft()
+		m.editSeq++
+		cmd, err := startEditor(os.Getenv("EDITOR"), m.compose.Value(),
+			m.gen, m.editSeq, m.cur.ID)
+		if err != nil {
+			m.err = err
+			m.status = "editor did not start; draft preserved"
+			return m, nil
+		}
+		m.compose.Blur()
+		return m, cmd
+	case "ctrl+s":
+		m.saveDraft()
+		if _, unresolved := m.receipts[m.cur.ID]; unresolved {
+			m.err = errors.New("previous send may already be committed")
+			m.status = "press esc then r to reconcile; resend is disabled"
+			return m, nil
+		}
+		text := m.compose.Value()
+		if strings.TrimSpace(text) == "" {
+			m.err = errors.New("cannot send an empty draft")
+			m.status = "draft not sent"
+			return m, nil
+		}
+		m.gen++
+		m.sendSeq++
+		m.sending = true
+		m.cancelRequested = false
+		m.receipts[m.cur.ID] = sendReceipt{
+			kind: receiptInFlight, submitted: text, boundary: len(m.turns), seq: m.sendSeq,
+		}
+		m.streamID = m.cur.ID
+		m.streamOut, m.streamErr, m.dryRun, m.streamFailure = "", "", "", nil
+		m.status, m.err = "starting send", nil
+		m.compose.Blur()
+		m.resizeCompose()
+		return m, m.cfg.startSend(m.gen, m.sendSeq, m.cur.ID, text)
+	}
+
+	var cmd tea.Cmd
+	m.compose, cmd = m.compose.Update(msg)
+	m.saveDraft()
+	return m, cmd
+}
+
 func (m model) updateRead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	_, unresolved := m.receipts[m.cur.ID]
+	if msg.String() == "ctrl+c" && m.sending {
+		m.requestSendCancel()
+		return m, nil
+	}
+	if m.sending || m.readback || unresolved {
+		switch msg.String() {
+		case "q", "ctrl+c", "esc", "backspace", "h", "left":
+			m.status = "canonical reconciliation required before leaving"
+			return m, nil
+		}
+	}
 	if m.finding {
 		switch msg.Type {
+
 		case tea.KeyEsc:
 			m.finding = false
 			m.input.Blur()
@@ -918,9 +1519,28 @@ func (m model) updateRead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.refreshRead()
 		return m, nil
 	case "r":
-		m.loading, m.status, m.err = true, "reloading", nil
+		if m.sending || m.readback {
+			m.status = "send/readback already in progress"
+			return m, nil
+		}
+		_, afterSend := m.receipts[m.cur.ID]
+		m.loading, m.readback, m.err = true, afterSend, nil
+		if afterSend {
+			m.status = "reconciling previous send"
+		} else {
+			m.status = "reloading"
+		}
 		m.gen++
-		return m, tea.Batch(m.cfg.fetchTurns(m.gen, m.cur.ID, m.cur.Title), tick())
+		return m, tea.Batch(
+			m.cfg.fetchTurns(m.gen, m.cur.ID, m.cur.Title, afterSend),
+			tick(),
+		)
+	case "c":
+		if m.loading {
+			m.status = "wait for the current canonical read before composing"
+			return m, nil
+		}
+		return m, m.openCompose()
 	case "v":
 		m.toggleOverview()
 		return m, nil
@@ -1222,6 +1842,18 @@ func cutLine(s string, w int) string {
 	return fitWidth(sane(s), w)
 }
 
+func tailVisual(text string, width, height int) string {
+	if height <= 0 || text == "" {
+		return ""
+	}
+	rendered := renderTurnBody(text, width)
+	lines := strings.Split(rendered, "\n")
+	if len(lines) > height {
+		lines = lines[len(lines)-height:]
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m model) View() string {
 	if m.w == 0 {
 		return "…"
@@ -1234,6 +1866,37 @@ func (m model) View() string {
 	case screenSearch:
 		return "\n" + cTitle.Render("  search") + "\n\n  " + m.input.View() +
 			"\n\n" + cDim.Render("  the server is canonical — nothing is written locally")
+	case screenCompose:
+		head := cHeadBar.Width(m.w).Render(truncate(" reply · "+m.cur.Title, m.w))
+		body := m.compose.View()
+		bodyLines := strings.Count(body, "\n") + 1
+		remaining := m.h - bodyLines - 2
+		var output string
+		switch {
+		case m.dryRun != "":
+			if remaining > 1 {
+				output = "\n" + cDim.Render(" dry run (not executed)") + "\n" +
+					tailVisual(m.dryRun, m.w-2, remaining-1)
+			}
+		case m.streamOut != "" || m.streamErr != "":
+			if remaining > 1 {
+				text := m.streamOut
+				if m.streamErr != "" {
+					if text != "" && !strings.HasSuffix(text, "\n") {
+						text += "\n"
+					}
+					text += m.streamErr
+				}
+				output = "\n" + cDim.Render(" transient assistant stream") + "\n" +
+					tailVisual(text, m.w-2, remaining-1)
+			}
+		}
+		bar := " " + m.status + " · ^E editor ^D dry-run ^S send esc read"
+		foot := cBar.Render(truncate(bar, m.w))
+		if m.err != nil {
+			foot = cErr.Render(truncate(" error: "+m.err.Error(), m.w))
+		}
+		return head + "\n" + body + output + "\n" + foot
 	case screenRead:
 		head := truncate(fmt.Sprintf(" %s ", m.cur.Title), m.w)
 		ids := m.activeIndices()
@@ -1265,7 +1928,7 @@ func (m model) View() string {
 			if m.status != "" {
 				bar += " · " + m.status
 			}
-			bar += " · n/p v / ][ Y e t y esc"
+			bar += " · c reply n/p v / ][ Y e t y esc"
 		}
 		foot := cBar.Render(truncate(bar, m.w))
 		if m.err != nil && !m.loading && !m.finding {

@@ -195,7 +195,10 @@ cmd_login() {
     local cwa
     cwa=$(find_cwa) || { error "cwa not found — run ./run.sh setup first"; return 1; }
     mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR"
-    "$cwa" auth login --auth-file "$AUTH_FILE"
+    # `auth status` can report a future JWT expiry after the server has already
+    # rejected that token. An explicit login must not silently recapture the
+    # same saved browser session; require a fresh interactive login.
+    "$cwa" auth login --force --auth-file "$AUTH_FILE"
     chmod 600 "$AUTH_FILE"
     success "auth written to $AUTH_FILE (mode 600)"
 }
@@ -263,12 +266,18 @@ cmd_test() {
 cmd_smoke() {
     local py
     py=$(find_python) || { error "no interpreter can import the adapter — run ./run.sh setup"; return 1; }
+    local summarize='import json,sys
+result=json.load(sys.stdin)
+if not result.get("ok"):
+    print("  ok=False error=%s" % result.get("error", "unknown error"))
+    raise SystemExit(1)
+print("  ok=True count=%s" % result.get("count", len(result.get("items", []))))'
     info "projects"
     "$py" "$REPO_DIR/bin/cwaq" --auth-file "$AUTH_FILE" projects --limit 5 \
-        | python3 -c 'import json,sys; d=json.load(sys.stdin); print("  ok=%s count=%s" % (d["ok"], d["count"]))'
+        | python3 -c "$summarize"
     info "list"
     "$py" "$REPO_DIR/bin/cwaq" --auth-file "$AUTH_FILE" list --limit 3 \
-        | python3 -c 'import json,sys; d=json.load(sys.stdin); print("  ok=%s count=%s" % (d["ok"], d["count"]))'
+        | python3 -c "$summarize"
     success "the read contract answers"
 }
 
